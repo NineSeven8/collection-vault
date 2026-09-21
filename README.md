@@ -220,6 +220,38 @@ fallback for local/dev use.
 5. Make sure `pdo_sqlite` is enabled for your PHP-FPM pool
    (`php -m | grep sqlite` on the server, or check
    `phpinfo()`/`php -i` if it's not showing up), then restart PHP-FPM.
+6. **On RHEL/CentOS/Fedora/Rocky/AlmaLinux**, check whether SELinux is
+   enforcing — if it is, permissions alone (step 2) won't be enough:
+   ```bash
+   getenforce
+   ```
+   If that prints `Enforcing`, nginx and PHP-FPM are confined and need the
+   app folder labeled correctly before they can read *or* write it, even
+   with correct Unix permissions:
+   ```bash
+   # policycoreutils-python-utils provides semanage, if not already installed
+   sudo dnf install -y policycoreutils-python-utils
+
+   # Let nginx/PHP-FPM read the app's PHP files
+   sudo semanage fcontext -a -t httpd_sys_content_t "/var/www/collection-vault(/.*)?"
+
+   # Let PHP-FPM write collection.db (and its corrupted-file/import backups)
+   sudo semanage fcontext -a -t httpd_sys_rw_content_t "/var/www/collection-vault(/.*)?"
+
+   # Apply the new labels
+   sudo restorecon -Rv /var/www/collection-vault
+   ```
+   If nginx is configured to reach PHP-FPM over TCP (e.g.
+   `fastcgi_pass 127.0.0.1:9000;`) rather than a Unix socket, also allow
+   that connection:
+   ```bash
+   sudo setsebool -P httpd_can_network_connect on
+   ```
+   Still getting permission errors after this? Check what SELinux is
+   actually blocking:
+   ```bash
+   sudo ausearch -m avc -ts recent
+   ```
 
 ## First login
 
