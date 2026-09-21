@@ -268,3 +268,7 @@ copy. Restoring always keeps the database it's replacing as a dated
 
 For automated backups, `collection.db` is a single self-contained SQLite
 file — copying it (e.g. via a cron job) is a complete backup on its own.
+
+## Screenshot
+
+![Collection Vault screenshot](screenshots/admin.png)
