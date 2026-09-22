@@ -14,6 +14,11 @@ the whole app is plain PHP with an embedded SQLite database.
 - **Platforms** — organize your collection into separate platforms (e.g.
   "NES", "Vinyl", "Evercade"), each with its own fields, columns, sort
   order, and KPIs.
+- **Cover Artwork** — upload cover images (game box art, vinyl record
+  jackets, etc.) for each entry. View covers in an interactive lightbox popup.
+  Choose which field column displays the cover thumbnail button per platform
+  (e.g., Album for vinyls, Title or Spine # for games) directly from
+  **Manage Fields**.
 - **Custom fields** — beyond the built-in fields (Title, Release #,
   Line/Series, Legacy, Status, Packaging, Region, Format, Notes), define
   your own text, number, yes/no, or choice-list fields. Every field —
@@ -22,18 +27,22 @@ the whole app is plain PHP with an embedded SQLite database.
 - **KPI dashboard** — small stat cards (counts, percentages, or "most
   common value") built from your own conditions, fully configurable per
   platform from **Manage KPI's**.
-- **Sorting & column order** — click-to-sort with up to 4 remembered sort
-  levels per platform, and a drag-free reorder (via arrows) for both
-  columns and fields, saved per platform.
+- **Sorting & column order** — click-to-sort with remembered sort levels per
+  platform, and a drag-free reorder (via arrows) for both columns and
+  fields, saved per platform. Sort order is preserved in-place when uploading
+  covers or editing entries.
 - **Search & filters** — free-text search plus dropdown filters for any
   yes/no or choice-list field enabled on the platform.
 - **Platform templates** — save a field configuration as a reusable
   template when adding new platforms.
 - **CSV export** — export any platform's titles to CSV with your choice of
-  fields, straight from the toolbar.
+  fields, straight from the toolbar (accessible to both admins and guests).
 - **Database backup/restore** — one-click download of the full SQLite
   database, and upload-to-restore (the previous database is always kept
   as a timestamped `.bak` file, never deleted).
+- **Factory Reset** — wipe the database and delete all uploaded cover artwork
+  to start from scratch, protected with a two-step confirmation (typed keyword
+  + warning alert) and automatic safety backup.
 - **Admin authentication** — a single admin account (default
   `admin` / `admin123`, forced password change encouraged on first login);
   everyone else gets a read-only guest view of whichever platform they're
@@ -49,24 +58,35 @@ the whole app is plain PHP with an embedded SQLite database.
   Apache + mod_php/PHP-FPM, or PHP's own built-in server for quick
   testing).
 - Write access for the web server's user to the app's own folder, so it
-  can create and update `collection.db` there.
+  can create and update `collection.db` and save images to `uploads/covers/`.
 - No MySQL/Postgres, no Composer, no Node — nothing else to install.
 
 ## Project structure
 
 ```
 collection-vault/
-├── index.php              # entry point — wires everything below together
+├── index.php              # entry point — wires includes and views together
+├── .gitignore             # ignores collection.db, backups, and uploaded covers
+├── LICENSE                # project license
+├── README.md              # documentation and deployment guide
+├── collection.db          # created automatically on first run (git-ignored)
 ├── includes/
-│   ├── config.php         # session start + SQLite connection
-│   ├── constants.php      # built-in field/KPI definitions
-│   ├── helpers.php        # pure helper functions (KPI engine, field helpers, …)
+│   ├── config.php         # session start + SQLite connection (with auto-recovery)
+│   ├── constants.php      # built-in field & KPI definitions, choice colors
+│   ├── helpers.php        # helper functions (cover upload/wipe, KPI engine, HTML helpers)
 │   ├── schema.php         # CREATE TABLE + migrations — builds the DB from scratch
-│   ├── actions.php        # every POST handler (login, CRUD, exports, …)
-│   └── render_data.php    # loads the data the page needs to render
+│   ├── actions.php        # POST action handlers (login, CRUD, AJAX endpoints, exports, wipe)
+│   └── render_data.php    # loads platforms, fields, titles & sort data for rendering
 ├── views/
-│   ├── head.php, header.php, main.php, modals.php, scripts.php
-└── collection.db          # created automatically on first run — do not commit this
+│   ├── head.php           # HTML <head>, Tailwind CSS & custom styling
+│   ├── header.php         # top navbar, platform selector & admin toolbar
+│   ├── main.php           # collection data table, quick sort & filter controls
+│   ├── modals.php         # modals for titles, platforms, fields, backups & image preview
+│   └── scripts.php        # client-side logic, AJAX handlers, sorting & lightbox viewer
+├── uploads/
+│   └── covers/            # directory for uploaded cover artwork (.gitkeep tracked)
+└── screenshots/
+    └── admin.png          # UI preview image for README
 ```
 
 `collection.db` is created the first time the app runs, if it doesn't
