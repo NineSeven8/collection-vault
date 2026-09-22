@@ -75,38 +75,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         die("Unauthorized: Admin privileges required.");
     }
 
-    // Export a full database backup: a clean, consistent snapshot of the live
-    // database (platforms, titles, fields, templates, settings, users), downloaded
-    // straight to the browser.
+    // Export a full backup: a clean, consistent snapshot of the live database
+    // (platforms, titles, fields, templates, settings, users) plus every
+    // uploaded cover image, bundled into a single zip downloaded straight to
+    // the browser.
     if ($action === 'export_db') {
-        $tmp = sys_get_temp_dir() . '/collection_export_' . bin2hex(random_bytes(6)) . '.db';
+        $tmp_db = sys_get_temp_dir() . '/collection_export_' . bin2hex(random_bytes(6)) . '.db';
+        $tmp_zip = sys_get_temp_dir() . '/collection_export_' . bin2hex(random_bytes(6)) . '.zip';
         try {
+            if (!class_exists('ZipArchive')) {
+                throw new Exception("The PHP zip extension isn't enabled on this server.");
+            }
             try {
                 // Preferred: atomic, consistent snapshot. Needs SQLite 3.27+ (bundled
                 // with PHP's sqlite3 extension); older system libsqlite3 builds (common
                 // on plain nginx/PHP-FPM installs) don't support this statement.
-                $db->exec("VACUUM INTO " . $db->quote($tmp));
+                $db->exec("VACUUM INTO " . $db->quote($tmp_db));
             } catch (Exception $e) {
                 // Fallback for older SQLite: force any WAL data into the main file,
                 // then copy the file directly. Safe as long as nothing writes to the
                 // DB mid-copy, which is true for this single-process app.
                 $db->exec("PRAGMA wal_checkpoint(TRUNCATE)");
-                if (!copy($db_file, $tmp)) {
+                if (!copy($db_file, $tmp_db)) {
                     throw new Exception("Could not create a backup copy of the database file.");
                 }
             }
 
-            $fname = 'collection-backup-' . date('Y-m-d_His') . '.db';
+            $zip = new ZipArchive();
+            if ($zip->open($tmp_zip, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+                throw new Exception("Could not create the backup archive.");
+            }
+            $zip->addFile($tmp_db, 'collection.db');
+
+            // Keep the folder entry even when there are no covers yet, so import
+            // can tell "an intentionally cover-less backup" apart from "an old
+            // database-only backup that never touched covers at all".
+            $zip->addEmptyDir('uploads/covers');
+            $covers_dir = dirname(__DIR__) . '/uploads/covers';
+            if (is_dir($covers_dir)) {
+                foreach (scandir($covers_dir) as $f) {
+                    if ($f === '.' || $f === '..' || $f === '.gitkeep') continue;
+                    $full = $covers_dir . '/' . $f;
+                    if (is_file($full)) $zip->addFile($full, 'uploads/covers/' . $f);
+                }
+            }
+            $zip->close();
+
+            $fname = 'collection-backup-' . date('Y-m-d_His') . '.zip';
             while (ob_get_level() > 0) { ob_end_clean(); }
-            header('Content-Type: application/octet-stream');
+            header('Content-Type: application/zip');
             header('Content-Disposition: attachment; filename="' . $fname . '"');
-            header('Content-Length: ' . filesize($tmp));
+            header('Content-Length: ' . filesize($tmp_zip));
             header('Cache-Control: no-store');
-            readfile($tmp);
-            @unlink($tmp);
+            readfile($tmp_zip);
+            @unlink($tmp_db);
+            @unlink($tmp_zip);
             exit;
         } catch (Exception $e) {
-            @unlink($tmp);
+            @unlink($tmp_db);
+            @unlink($tmp_zip);
             $_SESSION['flash_message'] = "Export failed: " . $e->getMessage();
             header("Location: " . strtok($_SERVER['REQUEST_URI'], '?'));
             exit;
@@ -182,10 +209,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Import a database backup: validates the uploaded file is a genuine, intact
-    // backup of this app before replacing the live database with it. The database
-    // currently in use is kept as a timestamped .bak alongside it, never deleted.
+    // Import a backup: validates the uploaded file is a genuine, intact backup
+    // of this app before replacing the live database (and, for a zip backup,
+    // the cover images) with it. Whatever was in use before is kept as a
+    // timestamped .bak alongside it, never deleted.
     if ($action === 'import_db') {
+        $tmp_extract_db = null;
+        $tmp_covers_dir = null;
         try {
             if (empty($_FILES['backup_file']) || $_FILES['backup_file']['error'] !== UPLOAD_ERR_OK) {
                 if (!empty($_SERVER['CONTENT_LENGTH']) && empty($_POST) && empty($_FILES)) {
@@ -194,6 +224,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new Exception("Please choose a backup file to upload.");
             }
             $tmp_upload = $_FILES['backup_file']['tmp_name'];
+
+            // Sniff the real format instead of trusting the extension: a zip
+            // backup starts with the "PK" local-file-header signature.
+            $is_zip = @file_get_contents($tmp_upload, false, null, 0, 2) === 'PK';
+
+            // Whether the archive carries cover images to restore. null means
+            // "not a zip / no covers folder at all" - an old, database-only
+            // backup - so the covers on disk are left untouched. An empty
+            // array means the zip has the folder but no images in it, which
+            // does replace whatever covers are currently on disk (with none),
+            // matching what was actually backed up.
+            $covers_from_zip = null;
+
+            if ($is_zip) {
+                if (!class_exists('ZipArchive')) {
+                    throw new Exception("The PHP zip extension isn't enabled on this server.");
+                }
+                $zip = new ZipArchive();
+                if ($zip->open($tmp_upload) !== true) {
+                    throw new Exception("That file isn't a valid zip archive.");
+                }
+
+                $db_index = $zip->locateName('collection.db');
+                if ($db_index === false) {
+                    // Be forgiving of the exact filename in case it's been renamed
+                    for ($i = 0; $i < $zip->numFiles; $i++) {
+                        $n = $zip->getNameIndex($i);
+                        if (strpos($n, '/') === false && preg_match('/\.(db|sqlite|sqlite3)$/i', $n)) {
+                            $db_index = $i;
+                            break;
+                        }
+                    }
+                }
+                if ($db_index === false) throw new Exception("That archive doesn't contain a database file.");
+
+                $tmp_extract_db = sys_get_temp_dir() . '/collection_import_' . bin2hex(random_bytes(6)) . '.db';
+                $db_data = $zip->getFromIndex($db_index);
+                if ($db_data === false || file_put_contents($tmp_extract_db, $db_data) === false) {
+                    throw new Exception("Could not read the database from the archive.");
+                }
+
+                $cover_names = [];
+                for ($i = 0; $i < $zip->numFiles; $i++) {
+                    $n = $zip->getNameIndex($i);
+                    if (strpos($n, 'uploads/covers/') === 0 && substr($n, -1) !== '/') $cover_names[] = $n;
+                }
+                if ($zip->locateName('uploads/covers/') !== false || !empty($cover_names)) {
+                    $covers_from_zip = $cover_names;
+                    if (!empty($cover_names)) {
+                        $tmp_covers_dir = sys_get_temp_dir() . '/collection_import_covers_' . bin2hex(random_bytes(6));
+                        @mkdir($tmp_covers_dir, 0777, true);
+                        $zip->extractTo($tmp_covers_dir, $cover_names);
+                    }
+                }
+                $zip->close();
+                $tmp_upload = $tmp_extract_db;
+            }
 
             // Validate: must be a genuine, intact SQLite database with the tables this app expects
             $check = new PDO("sqlite:" . $tmp_upload);
@@ -215,11 +302,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!move_uploaded_file($tmp_upload, $db_file) && !copy($tmp_upload, $db_file)) {
                 throw new Exception("Could not save the uploaded file.");
             }
+            if ($tmp_extract_db && file_exists($tmp_extract_db)) @unlink($tmp_extract_db);
+
+            // Swap in the covers the archive carried, keeping whatever's
+            // currently on disk as a dated backup rather than deleting it.
+            if ($covers_from_zip !== null) {
+                $covers_dir = dirname(__DIR__) . '/uploads/covers';
+                if (is_dir($covers_dir)) {
+                    @rename($covers_dir, $covers_dir . '.pre-import-' . date('Y-m-d_His') . '.bak');
+                }
+                @mkdir($covers_dir, 0777, true);
+                if ($tmp_covers_dir && is_dir($tmp_covers_dir . '/uploads/covers')) {
+                    foreach (scandir($tmp_covers_dir . '/uploads/covers') as $f) {
+                        if ($f === '.' || $f === '..') continue;
+                        @rename($tmp_covers_dir . '/uploads/covers/' . $f, $covers_dir . '/' . $f);
+                    }
+                }
+            }
 
             unset($_SESSION['user']);
-            $_SESSION['flash_message'] = "Database restored from backup. Please sign in again.";
+            $_SESSION['flash_message'] = "Database restored from backup" . ($covers_from_zip !== null ? " (including cover images)" : "") . ". Please sign in again.";
         } catch (Exception $e) {
+            if ($tmp_extract_db && file_exists($tmp_extract_db)) @unlink($tmp_extract_db);
             $_SESSION['flash_message'] = "Import failed: " . $e->getMessage();
+        }
+        // Clean up the temp extraction folder either way
+        if ($tmp_covers_dir && is_dir($tmp_covers_dir)) {
+            if (is_dir($tmp_covers_dir . '/uploads/covers')) {
+                foreach (scandir($tmp_covers_dir . '/uploads/covers') as $f) {
+                    if ($f !== '.' && $f !== '..') @unlink($tmp_covers_dir . '/uploads/covers/' . $f);
+                }
+                @rmdir($tmp_covers_dir . '/uploads/covers');
+            }
+            @rmdir($tmp_covers_dir . '/uploads');
+            @rmdir($tmp_covers_dir);
         }
         header("Location: " . strtok($_SERVER['REQUEST_URI'], '?'));
         exit;

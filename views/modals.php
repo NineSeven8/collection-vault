@@ -120,21 +120,22 @@
             <div class="space-y-5">
                 <div>
                     <div class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Export</div>
-                    <p class="text-xs text-slate-500 mb-3">Downloads a full backup — every platform, title, field and setting — as a single file you keep.</p>
+                    <p class="text-xs text-slate-500 mb-3">Downloads a full backup — every platform, title, field, setting and cover image — as a single zip file you keep.</p>
                     <form method="POST" onsubmit="setTimeout(() => document.getElementById('backupModal').classList.add('hidden'), 0);">
                         <input type="hidden" name="action" value="export_db">
                         <button type="submit" class="w-full px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium">
-                            <i class="fa-solid fa-download mr-1.5"></i> Download Backup
+                            <i class="fa-solid fa-download mr-1.5"></i> Download Backup (.zip)
                         </button>
                     </form>
                 </div>
 
                 <div class="border-t border-slate-200 pt-5">
                     <div class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">Import</div>
-                    <p class="text-xs text-rose-600 mb-3"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Replaces everything currently in the database with the uploaded file. The current database is kept as a dated backup on the server, but only do this if you're sure.</p>
-                    <form method="POST" enctype="multipart/form-data" onsubmit="if (!confirm('This will REPLACE all current platforms, titles and settings with the uploaded backup. Continue?')) return false; setTimeout(() => document.getElementById('backupModal').classList.add('hidden'), 0);">
+                    <p class="text-xs text-rose-600 mb-3"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Replaces everything currently in the database, and every cover image, with what's in the uploaded zip. What's currently on the server is kept as a dated backup, but only do this if you're sure.</p>
+                    <form method="POST" enctype="multipart/form-data" onsubmit="if (!confirm('This will REPLACE all current platforms, titles, settings and cover images with the uploaded backup. Continue?')) return false; setTimeout(() => document.getElementById('backupModal').classList.add('hidden'), 0);">
                         <input type="hidden" name="action" value="import_db">
-                        <input type="file" name="backup_file" accept=".db,.sqlite,.sqlite3" required class="w-full text-sm text-slate-600 border border-slate-300 rounded-lg px-3 py-2 mb-3 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <input type="file" name="backup_file" accept=".zip,.db,.sqlite,.sqlite3" required class="w-full text-sm text-slate-600 border border-slate-300 rounded-lg px-3 py-2 mb-3 focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                        <p class="text-[11px] text-slate-400 mb-3 -mt-2">A .zip backup restores covers too; an older .db-only backup restores just the database.</p>
                         <button type="submit" class="w-full px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-medium">
                             <i class="fa-solid fa-upload mr-1.5"></i> Upload &amp; Restore
                         </button>

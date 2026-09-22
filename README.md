@@ -37,9 +37,12 @@ the whole app is plain PHP with an embedded SQLite database.
   template when adding new platforms.
 - **CSV export** — export any platform's titles to CSV with your choice of
   fields, straight from the toolbar (accessible to both admins and guests).
-- **Database backup/restore** — one-click download of the full SQLite
-  database, and upload-to-restore (the previous database is always kept
-  as a timestamped `.bak` file, never deleted).
+- **Backup/restore** — one-click download of a full backup — the SQLite
+  database and every uploaded cover image — bundled into a single `.zip`,
+  and upload-to-restore from that same zip (the previous database, and
+  previous covers, are always kept as timestamped `.bak` files/folders,
+  never deleted). A raw `.db`/`.sqlite` file from an older, database-only
+  backup can still be restored too.
 - **Factory Reset** — wipe the database and delete all uploaded cover artwork
   to start from scratch, protected with a two-step confirmation (typed keyword
   + warning alert) and automatic safety backup.
@@ -51,15 +54,57 @@ the whole app is plain PHP with an embedded SQLite database.
 ## Requirements
 
 - PHP **7.4+** (8.1+ recommended; tested on 8.2 and 8.4) with the
-  **`pdo_sqlite`** extension enabled. No other extensions are required
-  (`mbstring` is used opportunistically if present, but the app degrades
-  gracefully without it).
+  **`pdo_sqlite`** extension enabled. No other extensions are required to
+  browse and edit your collection (`mbstring` is used opportunistically if
+  present, but the app degrades gracefully without it).
+- The **`zip`** extension, only for Backup/Restore (Export and Import both
+  show a clear error instead of the file if it's missing; the rest of the
+  app works fine without it). See [Enabling the `zip` extension](#enabling-the-zip-extension)
+  below — most PHP installs already ship it, just disabled by default.
 - A web server that can hand `.php` requests to PHP (nginx + PHP-FPM,
   Apache + mod_php/PHP-FPM, or PHP's own built-in server for quick
   testing).
 - Write access for the web server's user to the app's own folder, so it
   can create and update `collection.db` and save images to `uploads/covers/`.
 - No MySQL/Postgres, no Composer, no Node — nothing else to install.
+
+### Enabling the `zip` extension
+
+**Package-managed PHP** (typical on Linux):
+```bash
+# Debian/Ubuntu
+sudo apt install php-zip        # or php8.x-zip for a specific version
+sudo systemctl restart php8.x-fpm
+
+# RHEL/Fedora/Rocky/AlmaLinux
+sudo dnf install php-pecl-zip
+sudo systemctl restart php-fpm
+```
+On Debian/Ubuntu this usually self-enables (it drops an ini into
+`mods-available` and symlinks it into `fpm/conf.d`) — no manual edit
+needed. Restarting PHP-FPM is what actually picks it up; nginx needs no
+changes of its own for this, it just proxies the request through as usual.
+
+**Manual builds / Windows / XAMPP etc.**: find the `php.ini` the
+**web-facing** PHP (PHP-FPM, or Apache's mod_php) actually loads — run
+`php --ini` for the CLI's, or check a `phpinfo()` page for the SAPI in
+question, since CLI and FPM often load *different* files — and uncomment:
+```ini
+extension=zip
+```
+then restart PHP-FPM (or the web server, for mod_php).
+
+Verify it loaded with `php-fpm -m | grep zip`, or by finding "zip" on a
+`phpinfo()` page.
+
+**Docker (`php:*-fpm-alpine` images)**: the official Alpine PHP-FPM images
+don't ship `zip` either — it needs building in. See the Dockerfile in the
+Docker Compose section below.
+
+If your covers add up to real size, a zip backup can be much larger than
+the old database-only one — if restoring ever fails as "too large," raise
+`upload_max_filesize`/`post_max_size` in php.ini and, if you're behind
+nginx, `client_max_body_size` in the server block.
 
 ## Project structure
 
@@ -108,6 +153,8 @@ This is the recommended way to run it. Project layout:
 ```
 my-project/
 ├── docker-compose.yml
+├── php/
+│   └── Dockerfile
 ├── nginx/
 │   └── default.conf
 └── www/
@@ -131,12 +178,28 @@ services:
     restart: unless-stopped
 
   php:
-    image: php:8.2-fpm-alpine
+    build: ./php
     container_name: collection_vault_php
     volumes:
       - ./www:/var/www
     restart: unless-stopped
 ```
+
+**`php/Dockerfile`**
+
+The official Alpine PHP-FPM image doesn't ship the `zip` extension
+(needed for Backup/Restore) by default, so it's built in:
+
+```dockerfile
+FROM php:8.2-fpm-alpine
+
+RUN apk add --no-cache libzip-dev zip unzip \
+    && docker-php-ext-configure zip \
+    && docker-php-ext-install zip
+```
+
+(`pdo_sqlite`/`sqlite3` are already compiled into the base `php:*-fpm`
+images, so nothing extra is needed for those.)
 
 **`nginx/default.conf`**
 
@@ -173,7 +236,7 @@ server {
 Then:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 ### Bind-mount permissions
@@ -240,6 +303,8 @@ fallback for local/dev use.
 5. Make sure `pdo_sqlite` is enabled for your PHP-FPM pool
    (`php -m | grep sqlite` on the server, or check
    `phpinfo()`/`php -i` if it's not showing up), then restart PHP-FPM.
+   Do the same for `zip` if you want Backup/Restore to work — see
+   [Enabling the `zip` extension](#enabling-the-zip-extension) above.
 6. **On RHEL/CentOS/Fedora/Rocky/AlmaLinux**, check whether SELinux is
    enforcing — if it is, permissions alone (step 2) won't be enough:
    ```bash
@@ -281,13 +346,17 @@ fallback for local/dev use.
 
 ## Backups
 
-Use the **Backup/Restore** button (admin only) to download a full copy of
-`collection.db` at any time, and to restore from a previously downloaded
-copy. Restoring always keeps the database it's replacing as a dated
-`.bak` file alongside `collection.db`, so nothing is silently lost.
+Use the **Backup/Restore** button (admin only) to download a full backup
+— `collection.db` plus every file in `uploads/covers/` — as a single
+`.zip`, and to restore from a previously downloaded one. Restoring always
+keeps what it's replacing as dated `.bak` files/folders alongside the live
+ones, so nothing is silently lost. A raw `.db`/`.sqlite` file from an
+older, database-only export can still be restored too — it just leaves
+the current cover images untouched.
 
 For automated backups, `collection.db` is a single self-contained SQLite
-file — copying it (e.g. via a cron job) is a complete backup on its own.
+file — copying it (e.g. via a cron job) covers the database on its own;
+add `uploads/covers/` to the same job to also capture cover images.
 
 ## Screenshot
 
