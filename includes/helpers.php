@@ -394,3 +394,92 @@ function render_custom_input(array $f, $mode) {
     }
     return '<div title="' . $tip . '"><label for="' . $dom . '" class="block text-xs font-semibold text-slate-600 mb-1">' . $label . '</label>' . $control . '</div>';
 }
+
+// Handles an uploaded cover image file (validates mime/extension, moves to uploads/covers/,
+// unlinks old file if replacing). Returns relative path or null.
+function handle_cover_upload(?array $file, ?string $existing_path = null): ?string {
+    if (!$file || empty($file['tmp_name']) || $file['error'] !== UPLOAD_ERR_OK) {
+        return $existing_path;
+    }
+
+    $allowed_extensions = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, $allowed_extensions)) {
+        throw new Exception("Invalid image format. Allowed formats: JPG, PNG, WEBP, GIF.");
+    }
+
+    if ($file['size'] > 8 * 1024 * 1024) {
+        throw new Exception("Image file is too large (max 8MB).");
+    }
+
+    $info = @getimagesize($file['tmp_name']);
+    if (!$info) {
+        throw new Exception("The uploaded file is not a valid image.");
+    }
+
+    $upload_dir = dirname(__DIR__) . '/uploads/covers';
+    if (!is_dir($upload_dir)) {
+        @mkdir($upload_dir, 0777, true);
+    }
+
+    $filename = 'cover_' . uniqid('', true) . '.' . $ext;
+    $target_file = $upload_dir . '/' . $filename;
+
+    if (!copy($file['tmp_name'], $target_file)) {
+        if (!move_uploaded_file($file['tmp_name'], $target_file)) {
+            throw new Exception("Failed to save uploaded image.");
+        }
+    } else {
+        @unlink($file['tmp_name']);
+    }
+
+    if ($existing_path) {
+        delete_cover_file($existing_path);
+    }
+
+    return 'uploads/covers/' . $filename;
+}
+
+// Safely deletes a cover image file from disk
+function delete_cover_file(?string $rel_path): void {
+    if (!$rel_path) return;
+    $clean_path = str_replace(['..', '\\'], ['', '/'], $rel_path);
+    $full_path = dirname(__DIR__) . '/' . ltrim($clean_path, '/');
+    if (file_exists($full_path) && is_file($full_path)) {
+        @unlink($full_path);
+    }
+}
+
+// Safely deletes all uploaded cover artwork files from disk
+function wipe_all_cover_files(): int {
+    $dir = dirname(__DIR__) . '/uploads/covers';
+    $count = 0;
+    if (is_dir($dir)) {
+        $files = scandir($dir);
+        if ($files) {
+            foreach ($files as $f) {
+                if ($f !== '.' && $f !== '..' && $f !== '.gitkeep') {
+                    $full_path = $dir . '/' . $f;
+                    if (is_file($full_path)) {
+                        if (@unlink($full_path)) {
+                            $count++;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return $count;
+}
+
+// Renders the cover image thumbnail button for a table cell
+function render_cover_thumbnail(?string $image_path, ?string $title): string {
+    if (empty($image_path)) return '';
+    $safe_src = h($image_path);
+    $js_src = h(json_encode($image_path));
+    $js_title = h(json_encode($title ?: 'Cover Artwork'));
+    return '<button type="button" onclick="openImagePopup(' . $js_src . ', ' . $js_title . ')" class="relative group/cover flex-shrink-0 cursor-pointer focus:outline-none mr-2.5 inline-block align-middle" title="View cover artwork">'
+         . '<img src="' . $safe_src . '" alt="Cover" class="w-8 h-8 rounded-lg object-cover shadow-sm border border-slate-200 group-hover/cover:ring-2 group-hover/cover:ring-indigo-500 group-hover/cover:scale-105 transition">'
+         . '<span class="absolute inset-0 bg-black/35 rounded-lg opacity-0 group-hover/cover:opacity-100 flex items-center justify-center transition text-white text-[10px]"><i class="fa-solid fa-magnifying-glass-plus"></i></span>'
+         . '</button>';
+}

@@ -34,7 +34,7 @@
                         <button type="button" onclick="openKpiManager()" title="Manage KPI's" class="px-3 py-1.5 text-sm bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 transition shadow-sm font-medium">
                             <i class="fa-solid fa-chart-simple text-slate-500 sm:mr-1"></i> <span class="hidden sm:inline">Manage KPI's</span>
                         </button>
-                        <button onclick="document.getElementById('addGameModal').classList.remove('hidden'); setTimeout(() => { const el = document.getElementById('add_title'); if (el) el.focus(); }, 0);" class="flex-1 sm:flex-none px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow font-medium">
+                        <button onclick="openAddGameModal()" class="flex-1 sm:flex-none px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition shadow font-medium">
                             <i class="fa-solid fa-plus mr-1"></i> Add Title
                         </button>
                     </div>
@@ -191,11 +191,11 @@
                                     <?php endif; ?>
 
                                     <?php if ($has['title']): ?>
-                                        <?= col_th($lbl['title'], 'title', false, false, bf_sortable($field_meta, 'title')) ?>
+                                        <?= col_th($lbl['title'], 'title', false, false, bf_sortable($field_meta, 'title'), 'min-w-[160px] sm:min-w-[220px]') ?>
                                     <?php endif; ?>
 
                                     <?php if ($has['line_series']): ?>
-                                        <?= col_th($lbl['line_series'], 'line_series', false, false, bf_sortable($field_meta, 'line_series')) ?>
+                                        <?= col_th($lbl['line_series'], 'line_series', false, false, bf_sortable($field_meta, 'line_series'), 'min-w-[110px]') ?>
                                     <?php endif; ?>
 
                                     <?php if ($has['region']): ?>
@@ -219,7 +219,7 @@
                                     <?php endif; ?>
 
                                     <?php foreach ($custom_fields as $cf): $cid = (int)$cf['id']; $cf_center = ($cf['field_type'] !== 'text'); ?>
-                                        <?= col_th($cf['label'], 'cf' . $cid, $cf['field_type'] === 'number', $cf_center, !empty($cf['sortable'])) ?>
+                                        <?= col_th($cf['label'], 'cf' . $cid, $cf['field_type'] === 'number', $cf_center, !empty($cf['sortable']), $cf['field_type'] === 'text' ? 'min-w-[140px] sm:min-w-[180px]' : '') ?>
                                     <?php endforeach; ?>
 
                                     <?php if ($has['notes']): ?>
@@ -289,123 +289,172 @@
                                         <?php endif; ?>
 
                                         <?php if ($has['release_no']): ?>
-                                            <td class="px-2 py-2 sm:px-4 sm:py-3 text-center font-bold text-slate-700" data-col="release_no"><?= $g['release_no'] !== null ? $g['release_no'] : '—' ?></td>
+                                            <td class="px-2 py-2 sm:px-4 sm:py-3 text-center font-bold text-slate-700" data-col="release_no">
+                                                <div class="flex items-center justify-center">
+                                                    <?php if ($target_cover_field_id === ($field_id_by_key['release_no'] ?? -1)) echo render_cover_thumbnail($g['image_path'], 'No. ' . $g['release_no']); ?>
+                                                    <span><?= $g['release_no'] !== null ? $g['release_no'] : '—' ?></span>
+                                                </div>
+                                            </td>
                                         <?php endif; ?>
 
                                         <?php if ($has['title']): ?>
-                                        <td class="px-2 py-2 sm:px-4 sm:py-3 font-semibold text-slate-900" data-col="title"><?= $g['title'] !== '' ? htmlspecialchars($g['title']) : '<span class="text-slate-300 font-normal">—</span>' ?></td>
+                                        <td class="px-2 py-2 sm:px-4 sm:py-3 font-semibold text-slate-900 min-w-[160px] sm:min-w-[220px]" data-col="title">
+                                            <div class="flex items-center">
+                                                <?php if ($target_cover_field_id === ($field_id_by_key['title'] ?? -1)) echo render_cover_thumbnail($g['image_path'], $g['title']); ?>
+                                                <span class="break-words leading-tight"><?= $g['title'] !== '' ? htmlspecialchars($g['title']) : '<span class="text-slate-300 font-normal">—</span>' ?></span>
+                                            </div>
+                                        </td>
                                         <?php endif; ?>
 
                                         <?php if ($has['line_series']): ?>
-                                            <td class="px-2 py-2 sm:px-4 sm:py-3 text-slate-600" data-col="line_series"><?= htmlspecialchars($g['line_series'] ?: '—') ?></td>
+                                            <td class="px-2 py-2 sm:px-4 sm:py-3 text-slate-600 min-w-[110px]" data-col="line_series">
+                                                <div class="flex items-center">
+                                                    <?php if ($target_cover_field_id === ($field_id_by_key['line_series'] ?? -1)) echo render_cover_thumbnail($g['image_path'], $g['line_series']); ?>
+                                                    <span class="break-words leading-tight"><?= htmlspecialchars($g['line_series'] ?: '—') ?></span>
+                                                </div>
+                                            </td>
                                         <?php endif; ?>
 
                                         <?php if ($has['region']): ?>
                                             <td class="px-2 py-2 sm:px-4 sm:py-3 text-center" data-col="region">
-                                                <?php
-                                                    $region_colors = bf_colors($field_meta, 'region');
-                                                    $region_color = $region_colors[$region_val] ?? 'slate';
-                                                    $region_quick = $is_admin && bf_quick($field_meta, 'region');
-                                                    echo badge_tag($region_quick, $g['id'], 'b:region', choice_badge_class($region_color), h($region_val), false);
-                                                ?>
+                                                <div class="flex items-center justify-center">
+                                                    <?php if ($target_cover_field_id === ($field_id_by_key['region'] ?? -1)) echo render_cover_thumbnail($g['image_path'], $region_val ?: $g['title']); ?>
+                                                    <?php
+                                                        $region_colors = bf_colors($field_meta, 'region');
+                                                        $region_color = $region_colors[$region_val] ?? 'slate';
+                                                        $region_quick = $is_admin && bf_quick($field_meta, 'region');
+                                                        echo badge_tag($region_quick, $g['id'], 'b:region', choice_badge_class($region_color), h($region_val), false);
+                                                    ?>
+                                                </div>
                                             </td>
                                         <?php endif; ?>
 
                                         <?php if ($has['media_type']): ?>
                                             <td class="px-2 py-2 sm:px-4 sm:py-3 text-center" data-col="media_type">
-                                                <?php
-                                                    $media_colors = bf_colors($field_meta, 'media_type');
-                                                    $media_color = $media_colors[$media_val] ?? ($media_val === 'Digital' ? 'sky' : 'amber');
-                                                    $media_quick = $is_admin && bf_quick($field_meta, 'media_type');
-                                                    $media_icon = '<i class="fa-solid ' . ($media_val === 'Digital' ? 'fa-cloud-arrow-down' : 'fa-compact-disc') . ' text-[10px]"></i> ' . h($media_val);
-                                                    echo badge_tag($media_quick, $g['id'], 'b:media_type', choice_badge_class($media_color), $media_icon);
-                                                ?>
+                                                <div class="flex items-center justify-center">
+                                                    <?php if ($target_cover_field_id === ($field_id_by_key['media_type'] ?? -1)) echo render_cover_thumbnail($g['image_path'], $media_val ?: $g['title']); ?>
+                                                    <?php
+                                                        $media_colors = bf_colors($field_meta, 'media_type');
+                                                        $media_color = $media_colors[$media_val] ?? ($media_val === 'Digital' ? 'sky' : 'amber');
+                                                        $media_quick = $is_admin && bf_quick($field_meta, 'media_type');
+                                                        $media_icon = '<i class="fa-solid ' . ($media_val === 'Digital' ? 'fa-cloud-arrow-down' : 'fa-compact-disc') . ' text-[10px]"></i> ' . h($media_val);
+                                                        echo badge_tag($media_quick, $g['id'], 'b:media_type', choice_badge_class($media_color), $media_icon);
+                                                    ?>
+                                                </div>
                                             </td>
                                         <?php endif; ?>
 
                                         <?php if ($has['legacy']): ?>
                                             <td class="px-2 py-2 sm:px-4 sm:py-3 text-center" data-col="legacy">
-                                                <?php
-                                                    $legacy_quick = $is_admin && bf_quick($field_meta, 'legacy');
-                                                    if ($g['is_legacy']) {
-                                                        echo badge_tag($legacy_quick, $g['id'], 'b:legacy', 'bg-rose-100 text-rose-700 border border-rose-200', 'LEGACY', false);
-                                                    } else {
-                                                        echo badge_tag($legacy_quick, $g['id'], 'b:legacy', 'bg-slate-100 text-slate-500 border border-slate-200', 'NO', false);
-                                                    }
-                                                ?>
+                                                <div class="flex items-center justify-center">
+                                                    <?php if ($target_cover_field_id === ($field_id_by_key['legacy'] ?? -1)) echo render_cover_thumbnail($g['image_path'], $g['title'] ?: 'Legacy'); ?>
+                                                    <?php
+                                                        $legacy_quick = $is_admin && bf_quick($field_meta, 'legacy');
+                                                        if ($g['is_legacy']) {
+                                                            echo badge_tag($legacy_quick, $g['id'], 'b:legacy', 'bg-rose-100 text-rose-700 border border-rose-200', 'LEGACY', false);
+                                                        } else {
+                                                            echo badge_tag($legacy_quick, $g['id'], 'b:legacy', 'bg-slate-100 text-slate-500 border border-slate-200', 'NO', false);
+                                                        }
+                                                    ?>
+                                                </div>
                                             </td>
                                         <?php endif; ?>
 
                                         <?php if ($has['cib']): ?>
                                             <td class="px-2 py-2 sm:px-4 sm:py-3 text-center" data-col="cib">
-                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold <?= !empty($g['is_cib']) ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200' ?>">
-                                                    <i class="fa-solid <?= !empty($g['is_cib']) ? 'fa-box' : 'fa-box-open' ?> text-[10px]"></i>
-                                                    <span><?= $cib_text ?></span>
-                                                </span>
+                                                <div class="flex items-center justify-center">
+                                                    <?php if ($target_cover_field_id === ($field_id_by_key['cib'] ?? -1)) echo render_cover_thumbnail($g['image_path'], $g['title'] ?: $cib_text); ?>
+                                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold <?= !empty($g['is_cib']) ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-slate-100 text-slate-500 border border-slate-200' ?>">
+                                                        <i class="fa-solid <?= !empty($g['is_cib']) ? 'fa-box' : 'fa-box-open' ?> text-[10px]"></i>
+                                                        <span><?= $cib_text ?></span>
+                                                    </span>
+                                                </div>
                                             </td>
                                         <?php endif; ?>
 
                                         <?php if ($has['status']): ?>
                                             <td class="px-2 py-2 sm:px-4 sm:py-3 text-center" data-col="status">
-                                                <?php if ($is_admin): ?>
-                                                    <button type="button" onclick="toggleOwned(<?= $g['id'] ?>, this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition <?= $g['is_owned'] ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-200 text-slate-700 hover:bg-slate-300' ?>" title="Click to toggle status">
-                                                        <i class="fa-solid <?= $g['is_owned'] ? 'fa-check' : 'fa-xmark' ?>"></i>
-                                                        <span><?= $g['is_owned'] ? 'OWNED' : 'WANTED' ?></span>
-                                                    </button>
-                                                <?php else: ?>
-                                                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold <?= $g['is_owned'] ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700' ?>">
-                                                        <i class="fa-solid <?= $g['is_owned'] ? 'fa-check' : 'fa-xmark' ?>"></i>
-                                                        <span><?= $g['is_owned'] ? 'OWNED' : 'WANTED' ?></span>
-                                                    </span>
-                                                <?php endif; ?>
+                                                <div class="flex items-center justify-center">
+                                                    <?php if ($target_cover_field_id === ($field_id_by_key['status'] ?? -1)) echo render_cover_thumbnail($g['image_path'], $g['title'] ?: ($g['is_owned'] ? 'OWNED' : 'WANTED')); ?>
+                                                    <?php if ($is_admin): ?>
+                                                        <button type="button" onclick="toggleOwned(<?= $g['id'] ?>, this)" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition <?= $g['is_owned'] ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-slate-200 text-slate-700 hover:bg-slate-300' ?>" title="Click to toggle status">
+                                                            <i class="fa-solid <?= $g['is_owned'] ? 'fa-check' : 'fa-xmark' ?>"></i>
+                                                            <span><?= $g['is_owned'] ? 'OWNED' : 'WANTED' ?></span>
+                                                        </button>
+                                                    <?php else: ?>
+                                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold <?= $g['is_owned'] ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700' ?>">
+                                                            <i class="fa-solid <?= $g['is_owned'] ? 'fa-check' : 'fa-xmark' ?>"></i>
+                                                            <span><?= $g['is_owned'] ? 'OWNED' : 'WANTED' ?></span>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                </div>
                                             </td>
                                         <?php endif; ?>
                                         
                                         <?php foreach ($custom_fields as $cf): $cv = $g['cf'][(int)$cf['id']] ?? ''; $cid = (int)$cf['id']; $cf_quick = $is_admin && field_is_quick_toggle($cf); ?>
                                             <?php if ($cf['field_type'] === 'yesno'): ?>
                                                 <td class="px-2 py-2 sm:px-4 sm:py-3 text-center" data-col="cf<?= $cid ?>">
-                                                    <?php if ($cv === '1'): ?>
-                                                        <?= badge_tag($cf_quick, $g['id'], 'c:' . $cid, 'bg-emerald-100 text-emerald-800 border border-emerald-200', 'YES', false) ?>
-                                                    <?php else: ?>
-                                                        <?= badge_tag($cf_quick, $g['id'], 'c:' . $cid, 'bg-slate-100 text-slate-500 border border-slate-200', 'NO', false) ?>
-                                                    <?php endif; ?>
+                                                    <div class="flex items-center justify-center">
+                                                        <?php if ($target_cover_field_id === $cid) echo render_cover_thumbnail($g['image_path'], $g['title'] ?: ($cf['label'] . ': ' . ($cv === '1' ? 'YES' : 'NO'))); ?>
+                                                        <?php if ($cv === '1'): ?>
+                                                            <?= badge_tag($cf_quick, $g['id'], 'c:' . $cid, 'bg-emerald-100 text-emerald-800 border border-emerald-200', 'YES', false) ?>
+                                                        <?php else: ?>
+                                                            <?= badge_tag($cf_quick, $g['id'], 'c:' . $cid, 'bg-slate-100 text-slate-500 border border-slate-200', 'NO', false) ?>
+                                                        <?php endif; ?>
+                                                    </div>
                                                 </td>
                                             <?php elseif ($cf['field_type'] === 'select'): ?>
                                                 <td class="px-2 py-2 sm:px-4 sm:py-3 text-center" data-col="cf<?= $cid ?>">
-                                                    <?php if ($cv !== ''):
-                                                        $cf_colors = field_colors($cf);
-                                                        $cf_color = $cf_colors[$cv] ?? 'slate';
-                                                        echo badge_tag($cf_quick, $g['id'], 'c:' . $cid, choice_badge_class($cf_color), h($cv), false);
-                                                    elseif ($cf_quick):
-                                                        echo badge_tag(true, $g['id'], 'c:' . $cid, 'bg-slate-50 text-slate-400 border border-dashed border-slate-300', '—', false);
-                                                    else: ?>
-                                                        <span class="text-slate-400">—</span>
-                                                    <?php endif; ?>
+                                                    <div class="flex items-center justify-center">
+                                                        <?php if ($target_cover_field_id === $cid) echo render_cover_thumbnail($g['image_path'], $cv ?: $g['title']); ?>
+                                                        <?php if ($cv !== ''):
+                                                            $cf_colors = field_colors($cf);
+                                                            $cf_color = $cf_colors[$cv] ?? 'slate';
+                                                            echo badge_tag($cf_quick, $g['id'], 'c:' . $cid, choice_badge_class($cf_color), h($cv), false);
+                                                        elseif ($cf_quick):
+                                                            echo badge_tag(true, $g['id'], 'c:' . $cid, 'bg-slate-50 text-slate-400 border border-dashed border-slate-300', '—', false);
+                                                        else: ?>
+                                                            <span class="text-slate-400">—</span>
+                                                        <?php endif; ?>
+                                                    </div>
                                                 </td>
                                             <?php elseif ($cf['field_type'] === 'number'): ?>
-                                                <td class="px-2 py-2 sm:px-4 sm:py-3 text-center font-semibold <?= !empty($cf['bold']) ? 'text-slate-900' : 'text-slate-700' ?>" data-col="cf<?= $cid ?>"><?= $cv !== '' ? h($cv) : '—' ?></td>
+                                                <td class="px-2 py-2 sm:px-4 sm:py-3 text-center font-semibold <?= !empty($cf['bold']) ? 'text-slate-900' : 'text-slate-700' ?>" data-col="cf<?= $cid ?>">
+                                                    <div class="flex items-center justify-center">
+                                                        <?php if ($target_cover_field_id === $cid) echo render_cover_thumbnail($g['image_path'], $cv ?: $g['title']); ?>
+                                                        <span><?= $cv !== '' ? h($cv) : '—' ?></span>
+                                                    </div>
+                                                </td>
                                             <?php else: ?>
-                                                <td class="px-2 py-2 sm:px-4 sm:py-3 <?= !empty($cf['bold']) ? 'font-semibold text-slate-900' : 'text-slate-600' ?>" data-col="cf<?= $cid ?>"><?= $cv !== '' ? h($cv) : '—' ?></td>
+                                                <td class="px-2 py-2 sm:px-4 sm:py-3 <?= !empty($cf['bold']) ? 'font-semibold text-slate-900' : 'text-slate-600' ?> min-w-[140px] sm:min-w-[180px]" data-col="cf<?= $cid ?>">
+                                                    <div class="flex items-center">
+                                                        <?php if ($target_cover_field_id === $cid) echo render_cover_thumbnail($g['image_path'], $cv ?: $g['title']); ?>
+                                                        <span class="break-words leading-tight"><?= $cv !== '' ? h($cv) : '—' ?></span>
+                                                    </div>
+                                                </td>
                                             <?php endif; ?>
                                         <?php endforeach; ?>
 
                                         <?php if ($has['notes']): ?>
                                             <td class="px-2 py-1.5 sm:px-4 sm:py-2 text-xs" data-col="notes">
-                                                <?php if ($is_admin): ?>
-                                                    <div class="relative flex items-center group/note">
-                                                        <input type="text"
-                                                               value="<?= htmlspecialchars($g['notes'] ?: '') ?>"
-                                                               placeholder="Add notes..."
-                                                               onblur="saveInlineNote(<?= $g['id'] ?>, this)"
-                                                               onkeydown="if(event.key==='Enter') this.blur();"
-                                                               class="inline-note-input w-full bg-transparent hover:bg-slate-100 focus:bg-white text-slate-700 text-xs px-2 py-1 rounded border border-transparent hover:border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition focus:outline-none italic placeholder:text-slate-300">
-                                                        <span class="note-status-icon text-emerald-500 text-[11px] opacity-0 transition-opacity ml-1 pointer-events-none">
-                                                            <i class="fa-solid fa-check"></i>
-                                                        </span>
-                                                    </div>
-                                                <?php else: ?>
-                                                    <span class="text-slate-500 italic"><?= htmlspecialchars($g['notes'] ?: '') ?></span>
-                                                <?php endif; ?>
+                                                <div class="flex items-center">
+                                                    <?php if ($target_cover_field_id === ($field_id_by_key['notes'] ?? -1)) echo render_cover_thumbnail($g['image_path'], $g['title'] ?: 'Notes'); ?>
+                                                    <?php if ($is_admin): ?>
+                                                        <div class="relative flex items-center group/note w-full">
+                                                            <input type="text"
+                                                                   value="<?= htmlspecialchars($g['notes'] ?: '') ?>"
+                                                                   placeholder="Add notes..."
+                                                                   onblur="saveInlineNote(<?= $g['id'] ?>, this)"
+                                                                   onkeydown="if(event.key==='Enter') this.blur();"
+                                                                   class="inline-note-input w-full bg-transparent hover:bg-slate-100 focus:bg-white text-slate-700 text-xs px-2 py-1 rounded border border-transparent hover:border-slate-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition focus:outline-none italic placeholder:text-slate-300">
+                                                            <span class="note-status-icon text-emerald-500 text-[11px] opacity-0 transition-opacity ml-1 pointer-events-none">
+                                                                <i class="fa-solid fa-check"></i>
+                                                            </span>
+                                                        </div>
+                                                    <?php else: ?>
+                                                        <span class="text-slate-500 italic"><?= htmlspecialchars($g['notes'] ?: '') ?></span>
+                                                    <?php endif; ?>
+                                                </div>
                                             </td>
                                         <?php endif; ?>
 

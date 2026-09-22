@@ -1,4 +1,27 @@
 
+    <!-- Modal: Cover Image Popup / Lightbox -->
+    <div id="imagePreviewModal" class="hidden fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-all duration-150" onclick="if(event.target===this) closeImagePopup()">
+        <div class="relative bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl max-w-lg sm:max-w-xl w-full p-4 sm:p-5 flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div class="flex justify-between items-center pb-3 border-b border-slate-800">
+                <div class="min-w-0 pr-3">
+                    <h3 id="imagePreviewTitle" class="text-base sm:text-lg font-bold text-white truncate">Cover Artwork</h3>
+                    <p class="text-xs text-slate-400">Cover Artwork Preview</p>
+                </div>
+                <div class="flex items-center gap-1.5 flex-shrink-0">
+                    <a id="imagePreviewDownload" href="#" target="_blank" download class="text-slate-400 hover:text-indigo-400 text-sm p-2 rounded-xl hover:bg-slate-800 transition" title="Open full size image">
+                        <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                    </a>
+                    <button type="button" onclick="closeImagePopup()" class="text-slate-400 hover:text-white text-lg p-2 rounded-xl hover:bg-slate-800 transition" title="Close (Esc)">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-auto flex items-center justify-center p-2 min-h-[240px]">
+                <img id="imagePreviewSrc" src="" alt="Cover Artwork" class="max-h-[70vh] max-w-full rounded-xl object-contain shadow-2xl">
+            </div>
+        </div>
+    </div>
+
     <!-- Hidden Single Delete Form -->
     <form id="singleDeleteForm" method="POST" class="hidden">
         <input type="hidden" name="action" value="delete_game">
@@ -117,13 +140,47 @@
                         </button>
                     </form>
                 </div>
+
+                <div class="border-t border-rose-200 pt-5">
+                    <div class="text-xs font-bold text-rose-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <i class="fa-solid fa-triangle-exclamation text-rose-600"></i>
+                        <span>Wipe Database &amp; Reset</span>
+                    </div>
+                    <div class="bg-rose-50 border border-rose-200 rounded-xl p-3 mb-3 text-xs text-rose-800 space-y-1">
+                        <p class="font-medium">Permanently deletes <strong>all platforms, titles, custom fields, settings</strong> and <strong>all uploaded cover images</strong>.</p>
+                        <p class="text-[11px] text-rose-600">A server backup (<code class="bg-white/80 px-1 py-0.5 rounded font-mono text-[10px]">.pre-wipe-*.bak</code>) is created automatically before deletion.</p>
+                    </div>
+
+                    <form method="POST" id="wipeDbForm" onsubmit="return confirmWipeDb();">
+                        <input type="hidden" name="action" value="wipe_db">
+                        <div class="mb-3">
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">
+                                Type <strong class="text-rose-700 font-mono tracking-wider">WIPE</strong> to confirm:
+                            </label>
+                            <input type="text"
+                                   id="wipe_confirm_input"
+                                   name="confirm_text"
+                                   autocomplete="off"
+                                   spellcheck="false"
+                                   placeholder="Type WIPE here..."
+                                   oninput="checkWipeInput(this.value)"
+                                   class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500 focus:outline-none font-mono uppercase tracking-widest text-center font-bold">
+                        </div>
+                        <button type="submit"
+                                id="wipeDbBtn"
+                                disabled
+                                class="w-full px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>Wipe Database &amp; Start Fresh</span>
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
     <?php endif; ?>
 
     <!-- Modal: Export Titles (CSV) -->
-    <?php if ($is_admin): ?>
     <div id="exportCsvModal" class="hidden fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
@@ -174,7 +231,6 @@
             <?php endif; ?>
         </div>
     </div>
-    <?php endif; ?>
 
     <!-- Modal: Add Game -->
     <div id="addGameModal" class="hidden fixed inset-0 bg-slate-900/60 flex items-center justify-center p-4 z-50">
@@ -183,7 +239,7 @@
                 <h3 class="text-lg font-bold text-slate-900">Add Title to <?= htmlspecialchars($current_platform['name']) ?></h3>
                 <button onclick="document.getElementById('addGameModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
-            <form method="POST" class="space-y-4">
+            <form method="POST" id="addGameForm" class="space-y-4" enctype="multipart/form-data" onsubmit="return ajaxSubmitAddForm(event)">
                 <input type="hidden" name="action" value="add_game">
                 <input type="hidden" name="platform_id" value="<?= $active_platform_id ?>">
                 
@@ -274,6 +330,28 @@
                     </div>
                 <?php endif; ?>
 
+                <!-- Cover Artwork Upload -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">
+                        <i class="fa-regular fa-image text-indigo-500 mr-1"></i> Cover Artwork / Image <span class="font-normal text-slate-400">(optional)</span>
+                    </label>
+                    <div class="flex items-center gap-3">
+                        <label class="cursor-pointer inline-flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition shadow-sm bg-white">
+                            <i class="fa-solid fa-cloud-arrow-up text-indigo-500"></i>
+                            <span>Choose Image...</span>
+                            <input type="file" name="cover_image" accept="image/*" class="hidden" onchange="previewCoverImage(this, 'add_cover_preview', 'add_cover_preview_container', 'add_cover_name')">
+                        </label>
+                        <span id="add_cover_name" class="text-xs text-slate-400 truncate max-w-[200px]">No file chosen</span>
+                    </div>
+                    <div id="add_cover_preview_container" class="hidden mt-2.5 flex items-center gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                        <img id="add_cover_preview" src="" alt="Cover preview" class="w-14 h-14 object-cover rounded-lg border border-slate-300 shadow-sm">
+                        <div class="text-xs text-slate-500">
+                            <span class="font-semibold text-indigo-700">Cover image selected</span>
+                            <p class="text-[11px] text-slate-400">Will be saved as cover artwork</p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex justify-end gap-3 pt-3">
                     <button type="button" onclick="document.getElementById('addGameModal').classList.add('hidden')" class="px-4 py-2 border rounded-lg text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
                     <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium">Save Title</button>
@@ -289,7 +367,7 @@
                 <h3 class="text-lg font-bold text-slate-900">Edit Title Details</h3>
                 <button onclick="document.getElementById('editGameModal').classList.add('hidden')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
             </div>
-            <form method="POST" id="editGameForm" class="space-y-4" onsubmit="return ajaxSubmitEditForm(event)">
+            <form method="POST" id="editGameForm" class="space-y-4" enctype="multipart/form-data" onsubmit="return ajaxSubmitEditForm(event)">
                 <input type="hidden" name="action" value="edit_game">
                 <input type="hidden" name="game_id" id="edit_game_id">
                 <input type="hidden" name="platform_id" value="<?= $active_platform_id ?>">
@@ -381,6 +459,44 @@
                     </div>
                 <?php endif; ?>
 
+                <!-- Cover Artwork Upload / Replace / Remove -->
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">
+                        <i class="fa-regular fa-image text-indigo-500 mr-1"></i> Cover Artwork / Image <span class="font-normal text-slate-400">(optional)</span>
+                    </label>
+
+                    <!-- Existing Cover display (populated dynamically) -->
+                    <div id="edit_current_cover_container" class="hidden mb-2.5 p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between gap-3">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <img id="edit_current_cover_img" src="" alt="Current cover" class="w-12 h-12 object-cover rounded-lg border border-slate-300 shadow-sm cursor-pointer hover:opacity-90 transition" onclick="openImagePopup(this.src, document.getElementById('edit_title')?.value || 'Cover Artwork')" title="Click to preview full size">
+                            <div class="min-w-0 text-xs">
+                                <span class="font-semibold text-slate-800">Current Cover</span>
+                                <p class="text-[11px] text-slate-400">Click thumbnail to preview full size</p>
+                            </div>
+                        </div>
+                        <label class="flex items-center gap-1.5 text-xs text-rose-600 hover:text-rose-700 cursor-pointer font-medium flex-shrink-0 bg-white px-2.5 py-1.5 rounded-lg border border-rose-200 shadow-sm transition">
+                            <input type="checkbox" name="remove_cover" value="1" id="edit_remove_cover" class="rounded text-rose-600 focus:ring-rose-500 h-3.5 w-3.5" onchange="toggleRemoveCover(this)">
+                            <span>Remove cover</span>
+                        </label>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <label class="cursor-pointer inline-flex items-center gap-2 px-3 py-2 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition shadow-sm bg-white">
+                            <i class="fa-solid fa-cloud-arrow-up text-indigo-500"></i>
+                            <span id="edit_upload_btn_label">Upload cover image...</span>
+                            <input type="file" name="cover_image" id="edit_cover_input" accept="image/*" class="hidden" onchange="previewCoverImage(this, 'edit_cover_preview', 'edit_cover_preview_container', 'edit_cover_name')">
+                        </label>
+                        <span id="edit_cover_name" class="text-xs text-slate-400 truncate max-w-[200px]">No new file chosen</span>
+                    </div>
+                    <div id="edit_cover_preview_container" class="hidden mt-2.5 flex items-center gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                        <img id="edit_cover_preview" src="" alt="New cover preview" class="w-14 h-14 object-cover rounded-lg border border-slate-300 shadow-sm">
+                        <div class="text-xs text-slate-500">
+                            <span class="font-semibold text-indigo-700">New cover selected</span>
+                            <p class="text-[11px] text-slate-400">Will replace current cover upon save</p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex justify-end gap-3 pt-3">
                     <button type="button" onclick="document.getElementById('editGameModal').classList.add('hidden')" class="px-4 py-2 border rounded-lg text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
                     <button type="submit" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium">Update Title</button>
@@ -434,6 +550,21 @@
                     <input type="text" name="name" required placeholder="e.g. Nintendo Switch, PlayStation 5" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
                 </div>
 
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">
+                        <i class="fa-regular fa-image text-indigo-500 mr-1"></i> Field to Display Cover Image Thumbnail <span class="font-normal text-slate-400">(optional)</span>
+                    </label>
+                    <select name="cover_field_id" id="add_platform_cover_field_id" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+                        <option value="0">Automatic (Title or First Field)</option>
+                        <?php foreach ($all_fields as $f): ?>
+                            <option value="<?= (int)$f['id'] ?>">
+                                <?= h($f['label']) ?><?= $f['is_builtin'] ? ' (Built-in)' : ' (Custom)' ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="text-[11px] text-slate-400 mt-1">Choose which column displays the cover artwork thumbnail and popup in your collection table (e.g. Title in Games, Album in Vinyls).</p>
+                </div>
+
                 <div class="bg-slate-50 p-4 rounded-xl space-y-3 border border-slate-200">
                     <div class="flex items-center justify-between mb-2">
                         <div class="text-xs font-bold text-slate-700 uppercase tracking-wider">Configure Fields for this Platform</div>
@@ -485,6 +616,25 @@
                 <div>
                     <label class="block text-xs font-semibold text-slate-600 mb-1">Platform Name</label>
                     <input type="text" name="name" value="<?= htmlspecialchars($current_platform['name']) ?>" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-600 mb-1">
+                        <i class="fa-regular fa-image text-indigo-500 mr-1"></i> Field to Display Cover Image Thumbnail
+                    </label>
+                    <select name="cover_field_id" id="edit_platform_cover_field_id" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white">
+                        <option value="0">Automatic (Title or First Field)</option>
+                        <?php foreach ($all_fields as $f): 
+                            $fid = (int)$f['id'];
+                            $is_enabled = !empty($checked_field_ids[$fid]);
+                            $is_selected = ($current_platform['cover_field_id'] ?? 0) == $fid;
+                        ?>
+                            <option value="<?= $fid ?>" <?= $is_selected ? 'selected' : '' ?> class="<?= $is_enabled ? 'font-semibold text-slate-900' : 'text-slate-400' ?>">
+                                <?= h($f['label']) ?><?= $f['is_builtin'] ? ' (Built-in)' : ' (Custom)' ?><?= $is_enabled ? '' : ' — not enabled' ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <p class="text-[11px] text-slate-400 mt-1">Choose which column displays the cover artwork thumbnail and popup in your collection table (e.g. Title in Games, Album in Vinyls).</p>
                 </div>
 
                 <div class="bg-slate-50 p-4 rounded-xl space-y-3 border border-slate-200">
@@ -565,8 +715,9 @@
                 <?php else: foreach ($fields_to_manage as $f):
                     $fkey = $f['is_builtin'] ? $f['field_key'] : ('cf' . (int)$f['id']);
                     $is_column_field = !empty($checked_field_ids[(int)$f['id']]);
+                    $is_cover_field = ((int)($current_platform['cover_field_id'] ?? 0)) === (int)$f['id'];
                 ?>
-                    <div class="flex items-start justify-between gap-3 px-4 py-3"<?= $is_column_field ? ' data-field-order-key="' . h($fkey) . '"' : '' ?>>
+                    <div class="flex items-start justify-between gap-3 px-4 py-3"<?= $is_column_field ? ' data-field-order-key="' . h($fkey) . '"' : '' ?> data-field-id="<?= (int)$f['id'] ?>">
                         <div class="min-w-0">
                             <div class="flex flex-wrap items-center gap-2">
                                 <span class="font-semibold text-sm text-slate-900"><?= h($f['label']) ?></span>
@@ -574,12 +725,18 @@
                                 <?php if ($f['is_builtin']): ?>
                                     <span class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 text-[10px] font-semibold uppercase">Built-in</span>
                                 <?php endif; ?>
+                                <?php if ($is_cover_field): ?>
+                                    <span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 text-[10px] font-semibold uppercase"><i class="fa-regular fa-image mr-0.5"></i>Cover</span>
+                                <?php endif; ?>
                             </div>
                             <div class="text-xs text-slate-500 mt-0.5"><?= h($f['description']) ?></div>
                             <div class="text-[11px] text-slate-400 mt-0.5">Used on <?= (int)($fields_usage[(int)$f['id']] ?? 0) ?> platform(s)</div>
                         </div>
                         <div class="flex items-center gap-1 shrink-0">
                             <?php if ($is_column_field): ?>
+                                <button type="button" onclick="setCoverField(<?= (int)$f['id'] ?>)" class="cover-field-btn w-7 h-7 flex items-center justify-center rounded transition <?= $is_cover_field ? 'text-amber-600 bg-amber-50 ring-1 ring-amber-300' : 'text-slate-400 hover:text-amber-600 hover:bg-amber-50' ?>" title="<?= $is_cover_field ? 'Cover image shown on this field (click to remove)' : 'Show cover image on this field' ?>" data-field-id="<?= (int)$f['id'] ?>">
+                                    <i class="fa-<?= $is_cover_field ? 'solid' : 'regular' ?> fa-image"></i>
+                                </button>
                                 <button type="button" onclick="moveFieldRow(this, -1)" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-indigo-600 rounded" title="Move column earlier"><i class="fa-solid fa-chevron-up"></i></button>
                                 <button type="button" onclick="moveFieldRow(this, 1)" class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-indigo-600 rounded" title="Move column later"><i class="fa-solid fa-chevron-down"></i></button>
                             <?php endif; ?>

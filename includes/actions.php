@@ -65,8 +65,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // RESTRICTED ADMIN ACTIONS
-    if (!$is_admin && in_array($action, ['add_platform', 'edit_platform', 'delete_platform', 'add_game', 'edit_game', 'delete_game', 'bulk_delete_games', 'toggle_owned_ajax', 'toggle_cib_ajax', 'cycle_field_ajax', 'update_note_ajax', 'save_column_order', 'save_sort_ajax', 'change_password', 'update_app_name', 'save_field', 'delete_field', 'restore_builtin_fields', 'save_kpi', 'delete_kpi', 'restore_builtin_kpis', 'toggle_kpi_platform', 'save_kpi_order', 'save_platform_template', 'delete_platform_template', 'export_db', 'import_db', 'export_csv'])) {
-        if ($action === 'toggle_owned_ajax' || $action === 'toggle_cib_ajax' || $action === 'cycle_field_ajax' || $action === 'update_note_ajax' || $action === 'save_column_order' || $action === 'save_kpi_order' || $action === 'save_sort_ajax') {
+    if (!$is_admin && in_array($action, ['add_platform', 'edit_platform', 'delete_platform', 'add_game', 'edit_game', 'delete_game', 'bulk_delete_games', 'toggle_owned_ajax', 'toggle_cib_ajax', 'cycle_field_ajax', 'update_note_ajax', 'save_column_order', 'save_sort_ajax', 'change_password', 'update_app_name', 'save_field', 'delete_field', 'restore_builtin_fields', 'save_kpi', 'delete_kpi', 'restore_builtin_kpis', 'toggle_kpi_platform', 'save_kpi_order', 'save_platform_template', 'delete_platform_template', 'export_db', 'import_db', 'set_cover_field_ajax', 'wipe_db'])) {
+        if ($action === 'toggle_owned_ajax' || $action === 'toggle_cib_ajax' || $action === 'cycle_field_ajax' || $action === 'update_note_ajax' || $action === 'save_column_order' || $action === 'save_kpi_order' || $action === 'save_sort_ajax' || $action === 'set_cover_field_ajax') {
             header('Content-Type: application/json');
             http_response_code(403);
             echo json_encode(['success' => false, 'error' => 'Unauthorized']);
@@ -225,6 +225,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    // Wipe Database and Start From Scratch (Factory Reset)
+    if ($action === 'wipe_db') {
+        $confirm_text = trim($_POST['confirm_text'] ?? '');
+        if (strtoupper($confirm_text) !== 'WIPE') {
+            $_SESSION['flash_message'] = "Wipe aborted: You must type WIPE to confirm.";
+            $_SESSION['flash_type'] = 'error';
+            header("Location: " . strtok($_SERVER['REQUEST_URI'], '?'));
+            exit;
+        }
+
+        try {
+            // 1. Wipe all uploaded cover images
+            $wiped_covers = wipe_all_cover_files();
+
+            // 2. Safety backup of database file
+            $backup_file = $db_file . '.pre-wipe-' . date('Y-m-d_His') . '.bak';
+            if (file_exists($db_file)) {
+                @copy($db_file, $backup_file);
+            }
+
+            // 3. Close PDO connection so Windows unlocks file
+            $db = null;
+
+            // 4. Delete the database file so schema.php reinitializes everything fresh
+            $deleted = false;
+            if (file_exists($db_file)) {
+                $deleted = @unlink($db_file);
+                if (!$deleted) {
+                    $deleted = @rename($db_file, $backup_file);
+                }
+            }
+
+            // If file lock prevented unlink/rename, drop all tables as reliable fallback
+            if (file_exists($db_file)) {
+                $fallback_db = new PDO("sqlite:" . $db_file);
+                $fallback_db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+                $tables = $fallback_db->query("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")->fetchAll(PDO::FETCH_COLUMN);
+                foreach ($tables as $tbl) {
+                    $fallback_db->exec("DROP TABLE IF EXISTS \"$tbl\"");
+                }
+                $fallback_db = null;
+            }
+
+            // 5. Keep current admin user logged in seamlessly
+            $_SESSION['user'] = [
+                'id' => 1,
+                'username' => 'admin',
+                'role' => 'admin'
+            ];
+            $cover_msg = $wiped_covers > 0 ? " ($wiped_covers cover images deleted)" : "";
+            $_SESSION['flash_message'] = "Database wiped successfully and reset from scratch$cover_msg. A backup was saved on the server.";
+            $_SESSION['flash_type'] = 'success';
+        } catch (Exception $e) {
+            $_SESSION['flash_message'] = "Wipe failed: " . $e->getMessage();
+            $_SESSION['flash_type'] = 'error';
+        }
+
+        header("Location: " . strtok($_SERVER['REQUEST_URI'], '?'));
+        exit;
+    }
+
     // Update App Name
     if ($action === 'update_app_name') {
         $new_name = trim($_POST['app_name'] ?? '');
@@ -320,11 +381,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim($_POST['name'] ?? '');
         $code = strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $name));
         $field_ids = array_map('intval', (array)($_POST['fields'] ?? []));
+        $cover_field_id = !empty($_POST['cover_field_id']) ? (int)$_POST['cover_field_id'] : null;
 
         if ($name !== '') {
             try {
-                $stmt = $db->prepare("INSERT INTO platforms (name, code) VALUES (?, ?)");
-                $stmt->execute([$name, $code]);
+                $stmt = $db->prepare("INSERT INTO platforms (name, code, cover_field_id) VALUES (?, ?, ?)");
+                $stmt->execute([$name, $code, $cover_field_id]);
                 $new_id = (int)$db->lastInsertId();
                 sync_platform_fields($db, $new_id, $field_ids);
                 $new_has = get_platform_fields($db, $new_id)[0];
@@ -348,10 +410,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (int)$_POST['platform_id'];
         $name = trim($_POST['name'] ?? '');
         $field_ids = array_map('intval', (array)($_POST['fields'] ?? []));
+        $cover_field_id = !empty($_POST['cover_field_id']) ? (int)$_POST['cover_field_id'] : null;
 
         try {
-            $stmt = $db->prepare("UPDATE platforms SET name = ? WHERE id = ?");
-            $stmt->execute([$name, $id]);
+            $stmt = $db->prepare("UPDATE platforms SET name = ?, cover_field_id = ? WHERE id = ?");
+            $stmt->execute([$name, $cover_field_id, $id]);
             sync_platform_fields($db, $id, $field_ids);
             $_SESSION['flash_message'] = "Platform settings updated.";
         } catch (Exception $e) {
@@ -391,8 +454,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // fields instead and have no use for it. An empty string still satisfies
         // the NOT NULL column, so this is safe to save as-is.
         try {
-            $stmt = $db->prepare("INSERT INTO games (platform_id, release_no, title, line_series, is_legacy, is_owned, is_cib, region, media_type, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->execute([$platform_id, $release_no, $title, $line_series, $is_legacy, $is_owned, $is_cib, $region, $media_type, $notes]);
+            $image_path = handle_cover_upload($_FILES['cover_image'] ?? null);
+            $stmt = $db->prepare("INSERT INTO games (platform_id, release_no, title, line_series, is_legacy, is_owned, is_cib, region, media_type, notes, image_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$platform_id, $release_no, $title, $line_series, $is_legacy, $is_owned, $is_cib, $region, $media_type, $notes, $image_path]);
             $new_game_id = (int)$db->lastInsertId();
 
             $pf = get_platform_fields($db, $platform_id);
@@ -423,12 +487,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Title is optional (see add_game) - an empty string is a valid save, not
         // a rejected one.
         try {
+            $curr_stmt = $db->prepare("SELECT image_path FROM games WHERE id = ?");
+            $curr_stmt->execute([$game_id]);
+            $existing_image = $curr_stmt->fetchColumn() ?: null;
+
+            $image_path = $existing_image;
+            if (!empty($_POST['remove_cover'])) {
+                delete_cover_file($existing_image);
+                $image_path = null;
+            } elseif (isset($_FILES['cover_image']) && !empty($_FILES['cover_image']['tmp_name'])) {
+                $image_path = handle_cover_upload($_FILES['cover_image'], $existing_image);
+            }
+
             $pf = get_platform_fields($db, $platform_id);
             $has_f = $pf[0];
             $custom_f = $pf[1];
 
-            $sets = ['title = ?', 'is_owned = ?'];
-            $params = [$title, $is_owned];
+            $sets = ['title = ?', 'is_owned = ?', 'image_path = ?'];
+            $params = [$title, $is_owned, $image_path];
             $column_map = [
                 'release_no'  => ['release_no', $release_no],
                 'line_series' => ['line_series', $line_series],
@@ -466,6 +542,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!empty($game_ids) && is_array($game_ids)) {
             try {
+                // Delete associated cover images from disk
+                $img_stmt = $db->prepare("SELECT image_path FROM games WHERE id = ? AND platform_id = ?");
+                foreach ($game_ids as $gid) {
+                    $img_stmt->execute([(int)$gid, $platform_id]);
+                    $cover = $img_stmt->fetchColumn();
+                    if ($cover) delete_cover_file($cover);
+                }
+
                 $db->beginTransaction();
                 $del_vals = $db->prepare("DELETE FROM game_field_values WHERE game_id IN (SELECT id FROM games WHERE id = ? AND platform_id = ?)");
                 $stmt = $db->prepare("DELETE FROM games WHERE id = ? AND platform_id = ?");
@@ -949,11 +1033,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $game_id = (int)$_POST['game_id'];
         $platform_id = (int)$_POST['platform_id'];
         try {
+            $img_stmt = $db->prepare("SELECT image_path FROM games WHERE id = ?");
+            $img_stmt->execute([$game_id]);
+            $cover = $img_stmt->fetchColumn();
+            if ($cover) delete_cover_file($cover);
+
             $db->prepare("DELETE FROM game_field_values WHERE game_id = ?")->execute([$game_id]);
             $db->prepare("DELETE FROM games WHERE id = ?")->execute([$game_id]);
             $_SESSION['flash_message'] = "Title deleted.";
         } catch (Exception $e) {}
         header("Location: ?platform=" . $platform_id);
+        exit;
+    }
+
+    // Set Cover Field (AJAX) — radio-style: selecting the same field again clears it
+    if ($action === 'set_cover_field_ajax') {
+        header('Content-Type: application/json');
+        $platform_id = (int)($_POST['platform_id'] ?? 0);
+        $field_id    = (int)($_POST['field_id'] ?? 0);
+        try {
+            // Read current value
+            $stmt = $db->prepare("SELECT cover_field_id FROM platforms WHERE id = ?");
+            $stmt->execute([$platform_id]);
+            $current = (int)$stmt->fetchColumn();
+
+            // Toggle: if clicking the already-selected field, clear it (set to NULL)
+            $new_value = ($current === $field_id) ? null : $field_id;
+
+            $db->prepare("UPDATE platforms SET cover_field_id = ? WHERE id = ?")
+               ->execute([$new_value, $platform_id]);
+
+            echo json_encode(['success' => true, 'cover_field_id' => $new_value]);
+        } catch (Exception $e) {
+            http_response_code(500);
+            echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+        }
         exit;
     }
 }

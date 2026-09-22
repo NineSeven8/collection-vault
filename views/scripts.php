@@ -103,6 +103,103 @@
             toast._hideTimer = setTimeout(() => { toast.style.opacity = '0'; }, 2200);
         }
 
+        // ---- Table Sorting System ----
+        const SORT_ATTR_OVERRIDE = { cib: 'cib-sort', status: 'owned' };
+
+        let sortHistory = [];
+        try {
+            const sessSort = JSON.parse(sessionStorage.getItem('sort_history_' + '<?= (int)$active_platform_id ?>'));
+            if (Array.isArray(sessSort) && sessSort.length > 0) {
+                sortHistory = sessSort.slice(-4);
+            }
+        } catch (e) {}
+        if (!sortHistory.length && Array.isArray(SAVED_SORT_HISTORY)) {
+            sortHistory = SAVED_SORT_HISTORY.slice(-4);
+        }
+
+        function applySort(columnKey, dir, isNumeric) {
+            sortDirections[columnKey] = dir;
+
+            const tbody = document.getElementById('gamesTableBody');
+            if (!tbody) return;
+            const rows = Array.from(tbody.querySelectorAll('tr[data-id]'));
+            const attrName = SORT_ATTR_OVERRIDE[columnKey] || columnKey.replace(/_/g, '-');
+
+            rows.sort((a, b) => {
+                let valA = a.getAttribute(`data-${attrName}`) || '';
+                let valB = b.getAttribute(`data-${attrName}`) || '';
+
+                if (isNumeric) {
+                    valA = parseFloat(valA) || 0;
+                    valB = parseFloat(valB) || 0;
+                    return dir === 'asc' ? valA - valB : valB - valA;
+                } else {
+                    if (!valA && valB) return dir === 'asc' ? 1 : -1;
+                    if (valA && !valB) return dir === 'asc' ? -1 : 1;
+                    return dir === 'asc'
+                        ? valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' })
+                        : valB.localeCompare(valA, undefined, { numeric: true, sensitivity: 'base' });
+                }
+            });
+
+            rows.forEach(row => tbody.appendChild(row));
+
+            const sortSelect = document.getElementById('sortSelect');
+            if (sortSelect) {
+                const targetVal = `${columnKey}-${dir}`;
+                for (let option of sortSelect.options) {
+                    if (option.value === targetVal) {
+                        sortSelect.value = targetVal;
+                        break;
+                    }
+                }
+            }
+        }
+
+        function saveSortAjax() {
+            if (!IS_ADMIN) return;
+            const formData = new FormData();
+            formData.append('action', 'save_sort_ajax');
+            formData.append('platform_id', '<?= (int)$active_platform_id ?>');
+            formData.append('history_json', JSON.stringify(sortHistory));
+            fetch(window.location.href, { method: 'POST', body: formData, credentials: 'same-origin' }).catch(() => {});
+        }
+
+        function recordSortHistory(columnKey, dir, isNumeric) {
+            sortHistory = sortHistory.filter(item => item.col !== columnKey);
+            sortHistory.push({ col: columnKey, dir, numeric: isNumeric ? 1 : 0 });
+            if (sortHistory.length > 4) sortHistory = sortHistory.slice(-4);
+            try {
+                sessionStorage.setItem('sort_history_' + '<?= (int)$active_platform_id ?>', JSON.stringify(sortHistory));
+            } catch (e) {}
+            saveSortAjax();
+        }
+
+        function sortTableByColumn(columnKey, isNumeric = false) {
+            const currentDir = sortDirections[columnKey] === 'asc' ? 'desc' : 'asc';
+            applySort(columnKey, currentDir, isNumeric);
+            recordSortHistory(columnKey, currentDir, isNumeric);
+        }
+
+        function applyQuickSort(val) {
+            const lastDash = val.lastIndexOf('-');
+            if (lastDash === -1) return;
+            const columnKey = val.slice(0, lastDash);
+            const dir = val.slice(lastDash + 1);
+            const normDir = dir === 'desc' ? 'desc' : 'asc';
+            const isNumeric = (columnKey === 'release_no');
+            applySort(columnKey, normDir, isNumeric);
+            recordSortHistory(columnKey, normDir, isNumeric);
+        }
+
+        function reapplyCurrentSort() {
+            if (Array.isArray(sortHistory) && sortHistory.length > 0) {
+                sortHistory.forEach(item => {
+                    if (item && item.col) applySort(item.col, item.dir === 'desc' ? 'desc' : 'asc', !!item.numeric);
+                });
+            }
+        }
+
         function ajaxSubmitEditForm(e) {
             e.preventDefault();
             const form = e.target;
@@ -124,6 +221,7 @@
 
                         curTbody.innerHTML = newTbody.innerHTML;
                         applyColumnOrder();
+                        reapplyCurrentSort();
                         if (typeof filterTable === 'function') filterTable();
 
                         if (checkedIds.length) {
@@ -156,6 +254,50 @@
                         row.classList.add('bg-indigo-50');
                         setTimeout(() => row.classList.remove('bg-indigo-50'), 900);
                     }
+                })
+                .catch(() => {
+                    showToast('Could not save - check your connection and try again.', true);
+                })
+                .finally(() => {
+                    if (submitBtn) submitBtn.disabled = false;
+                });
+
+            return false;
+        }
+
+        function ajaxSubmitAddForm(e) {
+            e.preventDefault();
+            const form = e.target;
+            const submitBtn = form.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.disabled = true;
+
+            fetch(window.location.href, { method: 'POST', body: new FormData(form), credentials: 'same-origin' })
+                .then(r => r.text())
+                .then(html => {
+                    const doc = new DOMParser().parseFromString(html, 'text/html');
+
+                    const newTbody = doc.getElementById('gamesTableBody');
+                    const curTbody = document.getElementById('gamesTableBody');
+                    if (newTbody && curTbody) {
+                        curTbody.innerHTML = newTbody.innerHTML;
+                        applyColumnOrder();
+                        reapplyCurrentSort();
+                        if (typeof filterTable === 'function') filterTable();
+                    }
+
+                    const newKpi = doc.getElementById('kpiCardsRow');
+                    const curKpi = document.getElementById('kpiCardsRow');
+                    if (newKpi && curKpi) curKpi.innerHTML = newKpi.innerHTML;
+
+                    const newFlash = doc.getElementById('flashBanner');
+                    showToast(newFlash ? newFlash.textContent.trim() : 'Title added successfully.', false);
+
+                    document.getElementById('addGameModal').classList.add('hidden');
+                    form.reset();
+                    const previewCont = document.getElementById('add_cover_preview_container');
+                    if (previewCont) previewCont.classList.add('hidden');
+                    const nameLabel = document.getElementById('add_cover_name');
+                    if (nameLabel) nameLabel.textContent = 'No file chosen';
                 })
                 .catch(() => {
                     showToast('Could not save - check your connection and try again.', true);
@@ -454,6 +596,7 @@
         // Always opens "Add New Platform" with a clean slate — no leftover picks
         // from a template applied (or a form left half-filled) the last time it was open.
         function openAddPlatformModal() {
+            if (typeof closePlatformDropdown === 'function') closePlatformDropdown();
             const modal = document.getElementById('platformModal');
             if (!modal) return;
             const form = modal.querySelector('form[method="POST"]');
@@ -464,6 +607,10 @@
             if (updateBtn) updateBtn.classList.add('hidden');
             selectedTemplateId = null;
             modal.classList.remove('hidden');
+            setTimeout(() => {
+                const el = modal.querySelector('input[name="name"]');
+                if (el) el.focus();
+            }, 50);
         }
 
         function applyPlatformTemplate(id) {
@@ -699,6 +846,35 @@
             document.getElementById('deleteFieldForm').submit();
         }
 
+        function setCoverField(fieldId) {
+            const formData = new FormData();
+            formData.append('action', 'set_cover_field_ajax');
+            formData.append('platform_id', '<?= (int)$active_platform_id ?>');
+            formData.append('field_id', fieldId);
+
+            // Disable all cover buttons while saving
+            document.querySelectorAll('.cover-field-btn').forEach(b => b.disabled = true);
+
+            fetch('', { method: 'POST', body: formData })
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        alert(data.error || 'Failed');
+                        document.querySelectorAll('.cover-field-btn').forEach(b => b.disabled = false);
+                        return;
+                    }
+                    // Reload page with manage_fields open so the table updates
+                    // and the dialog stays visible
+                    const url = new URL(window.location.href);
+                    url.searchParams.set('manage_fields', '1');
+                    window.location.href = url.toString();
+                })
+                .catch(err => {
+                    alert('Error: ' + err.message);
+                    document.querySelectorAll('.cover-field-btn').forEach(b => b.disabled = false);
+                });
+        }
+
         // Drop ?manage_fields=1 from the address bar so a refresh doesn't reopen the dialog
         if (location.search.indexOf('manage_fields=1') !== -1) {
             const cleanUrl = new URL(location.href);
@@ -716,106 +892,8 @@
         }
 
 
-        // Actually reorders the table rows to an explicit column/direction (no
-        // toggling - see sortTableByColumn for the click-to-toggle wrapper).
-        // Shared by header clicks, the Quick Sort dropdown, and restoring the
-        // last sort a user picked on this platform when the page loads.
-        // "cib" sorts by a dedicated data-cib-sort="0"/"1" attribute rather than
-        // data-cib itself: data-cib holds the display text ("CIB" / "NOT CIB",
-        // also read by the Packaging filter dropdown), and "CIB" happens to sort
-        // alphabetically *before* "NOT CIB" - backwards from what "CIB First"
-        // should mean. A plain 0/1 flag sorts unambiguously either way.
-        const SORT_ATTR_OVERRIDE = { cib: 'cib-sort' };
-
-        function applySort(columnKey, dir, isNumeric) {
-            sortDirections[columnKey] = dir;
-
-            const tbody = document.getElementById('gamesTableBody');
-            if (!tbody) return;
-            const rows = Array.from(tbody.querySelectorAll('tr[data-id]'));
-            const attrName = SORT_ATTR_OVERRIDE[columnKey] || columnKey.replace('_', '-');
-
-            rows.sort((a, b) => {
-                let valA = a.getAttribute(`data-${attrName}`) || '';
-                let valB = b.getAttribute(`data-${attrName}`) || '';
-
-                if (isNumeric) {
-                    valA = parseFloat(valA) || 0;
-                    valB = parseFloat(valB) || 0;
-                    return dir === 'asc' ? valA - valB : valB - valA;
-                } else {
-                    return dir === 'asc'
-                        ? valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' })
-                        : valB.localeCompare(valA, undefined, { numeric: true, sensitivity: 'base' });
-                }
-            });
-
-            rows.forEach(row => tbody.appendChild(row));
-
-            const sortSelect = document.getElementById('sortSelect');
-            if (sortSelect) {
-                const targetVal = `${columnKey}-${dir}`;
-                for (let option of sortSelect.options) {
-                    if (option.value === targetVal) {
-                        sortSelect.value = targetVal;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Recent stack of sorts applied this visit, oldest first, most recent
-        // (dominant) last - mirrors what a sequence of stable sorts actually
-        // produces: sorting by Owned after Artist groups by Owned but keeps
-        // each group in its prior Artist order. Seeded from what was saved
-        // last time, so "Artist, then Owned" survives leaving and coming back.
-        let sortHistory = Array.isArray(SAVED_SORT_HISTORY) ? SAVED_SORT_HISTORY.slice(-4) : [];
-
-        // Fire-and-forget: remembers the whole stack server-side (per platform)
-        // so the platform reopens in this same compound order next time.
-        // Silently does nothing for a guest viewer - only admins can change
-        // the saved order, same as Reorder Columns.
-        function saveSortAjax() {
-            if (!IS_ADMIN) return;
-            const formData = new FormData();
-            formData.append('action', 'save_sort_ajax');
-            formData.append('platform_id', '<?= (int)$active_platform_id ?>');
-            formData.append('history_json', JSON.stringify(sortHistory));
-            fetch('', { method: 'POST', body: formData }).catch(() => {});
-        }
-
-        // Records a newly-picked sort as the new dominant (last) entry, moving
-        // it to the end of the stack if it was already in there, then persists
-        // the whole stack. Caller is expected to have already applied it to
-        // the DOM (it sorts on top of whatever order is already showing).
-        function recordSortHistory(columnKey, dir, isNumeric) {
-            sortHistory = sortHistory.filter(item => item.col !== columnKey);
-            sortHistory.push({ col: columnKey, dir, numeric: isNumeric ? 1 : 0 });
-            if (sortHistory.length > 4) sortHistory = sortHistory.slice(-4);
-            saveSortAjax();
-        }
-
-        function sortTableByColumn(columnKey, isNumeric = false) {
-            const currentDir = sortDirections[columnKey] === 'asc' ? 'desc' : 'asc';
-            applySort(columnKey, currentDir, isNumeric);
-            recordSortHistory(columnKey, currentDir, isNumeric);
-        }
-
-        function applyQuickSort(val) {
-            const [columnKey, dir] = val.split('-');
-            const normDir = dir === 'desc' ? 'desc' : 'asc';
-            const isNumeric = (columnKey === 'release_no');
-            applySort(columnKey, normDir, isNumeric);
-            recordSortHistory(columnKey, normDir, isNumeric);
-        }
-
-        // Restore the sorts saved for this platform (if any) once the table is
-        // in the DOM, replaying them oldest-first so a compound sort comes
-        // back exactly as it was left - covers custom-field sorts too, which
-        // the initial SQL ORDER BY on the server can't express.
-        sortHistory.forEach(item => {
-            if (item && item.col) applySort(item.col, item.dir === 'desc' ? 'desc' : 'asc', !!item.numeric);
-        });
+        // Initial replay of saved sorts when the page loads
+        reapplyCurrentSort();
 
         // Selection & Mass Delete
         function toggleSelectAll(masterCheckbox) {
@@ -996,6 +1074,36 @@
             const notesInput = document.getElementById('edit_notes');
             if (notesInput) notesInput.value = game.notes || '';
 
+            // Existing cover artwork handling
+            const currCoverContainer = document.getElementById('edit_current_cover_container');
+            const currCoverImg = document.getElementById('edit_current_cover_img');
+            const removeCoverCb = document.getElementById('edit_remove_cover');
+            const editCoverInput = document.getElementById('edit_cover_input');
+            const editCoverName = document.getElementById('edit_cover_name');
+            const editCoverPreviewContainer = document.getElementById('edit_cover_preview_container');
+            const editUploadBtnLabel = document.getElementById('edit_upload_btn_label');
+
+            if (editCoverInput) editCoverInput.value = '';
+            if (editCoverName) editCoverName.textContent = 'No new file chosen';
+            if (editCoverPreviewContainer) editCoverPreviewContainer.classList.add('hidden');
+            if (removeCoverCb) {
+                removeCoverCb.checked = false;
+                toggleRemoveCover(removeCoverCb);
+            }
+
+            if (game.image_path) {
+                if (currCoverContainer) currCoverContainer.classList.remove('hidden');
+                if (currCoverImg) {
+                    currCoverImg.src = game.image_path;
+                    currCoverImg.classList.remove('opacity-30', 'grayscale');
+                }
+                if (editUploadBtnLabel) editUploadBtnLabel.textContent = 'Replace cover image...';
+            } else {
+                if (currCoverContainer) currCoverContainer.classList.add('hidden');
+                if (currCoverImg) currCoverImg.src = '';
+                if (editUploadBtnLabel) editUploadBtnLabel.textContent = 'Upload cover image...';
+            }
+
             refreshClearButtons(document.getElementById('editGameModal'));
 
             document.getElementById('editGameModal').classList.remove('hidden');
@@ -1152,6 +1260,123 @@
 
             pendingNoteSave = savePromise;
             return savePromise;
+        }
+
+        // ---- Add Game Modal clean opener ----
+        function openAddGameModal() {
+            const modal = document.getElementById('addGameModal');
+            if (!modal) return;
+            const input = modal.querySelector('input[name="cover_image"]');
+            if (input) input.value = '';
+            const nameEl = document.getElementById('add_cover_name');
+            if (nameEl) nameEl.textContent = 'No file chosen';
+            const prevContainer = document.getElementById('add_cover_preview_container');
+            if (prevContainer) prevContainer.classList.add('hidden');
+            const prevImg = document.getElementById('add_cover_preview');
+            if (prevImg) prevImg.src = '';
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                const el = document.getElementById('add_title');
+                if (el) el.focus();
+            }, 0);
+        }
+
+        // ---- Cover Image Popup / Lightbox ----
+        function openImagePopup(src, title) {
+            if (!src) return;
+            const modal = document.getElementById('imagePreviewModal');
+            const img = document.getElementById('imagePreviewSrc');
+            const titleEl = document.getElementById('imagePreviewTitle');
+            const downloadLink = document.getElementById('imagePreviewDownload');
+            if (!modal || !img) return;
+
+            img.src = src;
+            if (titleEl) titleEl.textContent = title || 'Cover Artwork';
+            if (downloadLink) {
+                downloadLink.href = src;
+                const safeName = (title ? title.replace(/[^a-zA-Z0-9_-]+/g, '_') : 'cover') + '.jpg';
+                downloadLink.setAttribute('download', safeName);
+            }
+            modal.classList.remove('hidden');
+        }
+
+        function closeImagePopup() {
+            const modal = document.getElementById('imagePreviewModal');
+            if (modal) modal.classList.add('hidden');
+            const img = document.getElementById('imagePreviewSrc');
+            if (img) img.src = '';
+        }
+
+        // Close image popup on Escape key
+        window.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                const modal = document.getElementById('imagePreviewModal');
+                if (modal && !modal.classList.contains('hidden')) {
+                    closeImagePopup();
+                }
+            }
+        });
+
+        // Client-side instant preview for selected cover image file
+        function previewCoverImage(input, previewImgId, containerId, nameLabelId) {
+            const file = input.files && input.files[0];
+            const nameEl = document.getElementById(nameLabelId);
+            const container = document.getElementById(containerId);
+            const img = document.getElementById(previewImgId);
+
+            if (!file) {
+                if (nameEl) nameEl.textContent = 'No file chosen';
+                if (container) container.classList.add('hidden');
+                if (img) img.src = '';
+                return;
+            }
+
+            if (nameEl) nameEl.textContent = file.name;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                if (img) img.src = e.target.result;
+                if (container) container.classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function toggleRemoveCover(cb) {
+            const img = document.getElementById('edit_current_cover_img');
+            if (img) {
+                img.classList.toggle('opacity-30', cb.checked);
+                img.classList.toggle('grayscale', cb.checked);
+            }
+        }
+
+        // Database wipe confirmation helpers
+        function checkWipeInput(val) {
+            const btn = document.getElementById('wipeDbBtn');
+            if (!btn) return;
+            const match = (val || '').trim().toUpperCase() === 'WIPE';
+            btn.disabled = !match;
+        }
+
+        function confirmWipeDb() {
+            const input = document.getElementById('wipe_confirm_input');
+            if (!input || input.value.trim().toUpperCase() !== 'WIPE') {
+                alert('Please type WIPE to confirm.');
+                return false;
+            }
+            const confirmed = confirm(
+                "⚠️ FINAL WARNING: COMPLETE RESET ⚠️\n\n" +
+                "Are you absolutely sure you want to proceed?\n\n" +
+                "• ALL platforms and titles will be erased.\n" +
+                "• ALL cover artwork images in uploads/covers will be deleted.\n" +
+                "• ALL custom fields and templates will be reset.\n\n" +
+                "Click OK to permanently wipe everything."
+            );
+            if (!confirmed) return false;
+            setTimeout(() => {
+                const modal = document.getElementById('backupModal');
+                if (modal) modal.classList.add('hidden');
+            }, 0);
+            return true;
         }
 
     </script>

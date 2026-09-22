@@ -33,7 +33,8 @@ try {
         has_region INTEGER DEFAULT 0,
         has_media_type INTEGER DEFAULT 0,
         has_notes INTEGER DEFAULT 1,
-        show_title INTEGER NOT NULL DEFAULT 1
+        show_title INTEGER NOT NULL DEFAULT 1,
+        cover_field_id INTEGER DEFAULT NULL
     );
     CREATE TABLE IF NOT EXISTS games (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,6 +48,7 @@ try {
         region TEXT DEFAULT 'EUR (PAL)',
         media_type TEXT DEFAULT 'Physical',
         notes TEXT,
+        image_path TEXT DEFAULT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY(platform_id) REFERENCES platforms(id) ON DELETE CASCADE
     );
@@ -58,12 +60,14 @@ try {
     if (!in_array('has_cib', $p_cols)) $db->exec("ALTER TABLE platforms ADD COLUMN has_cib INTEGER DEFAULT 0");
     if (!in_array('has_region', $p_cols)) $db->exec("ALTER TABLE platforms ADD COLUMN has_region INTEGER DEFAULT 0");
     if (!in_array('has_media_type', $p_cols)) $db->exec("ALTER TABLE platforms ADD COLUMN has_media_type INTEGER DEFAULT 0");
+    if (!in_array('cover_field_id', $p_cols)) $db->exec("ALTER TABLE platforms ADD COLUMN cover_field_id INTEGER DEFAULT NULL");
 
     // Dynamic migrations for games
     $g_cols = $db->query("PRAGMA table_info(games)")->fetchAll(PDO::FETCH_COLUMN, 1);
     if (!in_array('is_cib', $g_cols)) $db->exec("ALTER TABLE games ADD COLUMN is_cib INTEGER DEFAULT 1");
     if (!in_array('region', $g_cols)) $db->exec("ALTER TABLE games ADD COLUMN region TEXT DEFAULT 'EUR (PAL)'");
     if (!in_array('media_type', $g_cols)) $db->exec("ALTER TABLE games ADD COLUMN media_type TEXT DEFAULT 'Physical'");
+    if (!in_array('image_path', $g_cols)) $db->exec("ALTER TABLE games ADD COLUMN image_path TEXT DEFAULT NULL");
 
     // Dynamic migrations for users
     $u_cols = $db->query("PRAGMA table_info(users)")->fetchAll(PDO::FETCH_COLUMN, 1);

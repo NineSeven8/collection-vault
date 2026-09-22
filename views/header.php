@@ -22,7 +22,7 @@
             </div>
 
             <!-- Platform Dropdown Selector & Add Button -->
-            <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div class="flex items-center gap-2 w-full sm:w-auto">
                 <div class="relative flex-1 sm:flex-none min-w-0">
                     <button type="button" onclick="togglePlatformDropdown(event)" class="w-full sm:w-auto flex items-center gap-2.5 bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-sm font-semibold border border-slate-700 shadow-sm transition">
                         <i class="fa-solid fa-layer-group text-indigo-400 flex-shrink-0"></i>
@@ -68,9 +68,9 @@
                 </div>
 
                 <?php if ($is_admin): ?>
-                    <button type="button" onclick="openAddPlatformModal()" class="bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white px-3 py-2 rounded-xl text-sm font-semibold border border-slate-700 shadow-sm transition" title="Add New Platform">
-                        <i class="fa-solid fa-plus"></i>
-                    </button>
+                <button type="button" onclick="openAddPlatformModal()" class="flex items-center justify-center bg-slate-800 hover:bg-slate-700 text-indigo-400 hover:text-indigo-300 px-3 py-2 rounded-xl text-sm font-bold border border-slate-700 shadow-sm transition flex-shrink-0" title="Add New Platform" aria-label="Add New Platform">
+                    <i class="fa-solid fa-plus"></i>
+                </button>
                 <?php endif; ?>
             </div>
 
@@ -95,9 +95,14 @@
                         </form>
                     </div>
                 <?php else: ?>
-                    <button onclick="document.getElementById('loginModal').classList.remove('hidden')" class="w-full sm:w-auto px-3.5 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition shadow font-medium">
-                        <i class="fa-solid fa-lock mr-1.5"></i> Admin Login
-                    </button>
+                    <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                        <button onclick="document.getElementById('exportCsvModal').classList.remove('hidden')" class="flex-1 sm:flex-none px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition whitespace-nowrap" title="Export Titles as CSV">
+                            <i class="fa-solid fa-file-csv mr-1"></i> Export
+                        </button>
+                        <button onclick="document.getElementById('loginModal').classList.remove('hidden')" class="flex-1 sm:flex-none px-3.5 py-1.5 text-xs sm:text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition shadow font-medium whitespace-nowrap">
+                            <i class="fa-solid fa-lock mr-1.5"></i> Admin Login
+                        </button>
+                    </div>
                 <?php endif; ?>
             </div>
         </div>

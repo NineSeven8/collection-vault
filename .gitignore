@@ -1,0 +1,15 @@
+# SQLite Database & Backups
+collection.db
+*.bak
+*.sqlite
+*.sqlite3
+
+# Uploaded Artwork Files (keep directory tracked)
+uploads/covers/*
+!uploads/covers/.gitkeep
+
+# IDE & OS Files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

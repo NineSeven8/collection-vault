@@ -119,6 +119,32 @@ function bf_colors($field_meta, $key) {
 }
 $checked_field_ids = $platform_field_ids[(int)$active_platform_id] ?? [];
 
+// Map field_key to field id for easy lookups
+$field_id_by_key = [];
+foreach ($all_fields as $f) {
+    $field_id_by_key[$f['field_key']] = (int)$f['id'];
+}
+
+// Determine which field displays the cover image thumbnail for the active platform
+$target_cover_field_id = 0;
+if ($current_platform) {
+    $configured_cover_field_id = (int)($current_platform['cover_field_id'] ?? 0);
+    if ($configured_cover_field_id > 0 && !empty($checked_field_ids[$configured_cover_field_id])) {
+        $target_cover_field_id = $configured_cover_field_id;
+    } else {
+        // Intelligent fallback: Title if enabled, else first custom field, else line_series, else release_no
+        if (!empty($has['title']) && !empty($field_id_by_key['title'])) {
+            $target_cover_field_id = $field_id_by_key['title'];
+        } elseif (!empty($custom_fields)) {
+            $target_cover_field_id = (int)$custom_fields[0]['id'];
+        } elseif (!empty($has['line_series']) && !empty($field_id_by_key['line_series'])) {
+            $target_cover_field_id = $field_id_by_key['line_series'];
+        } elseif (!empty($has['release_no']) && !empty($field_id_by_key['release_no'])) {
+            $target_cover_field_id = $field_id_by_key['release_no'];
+        }
+    }
+}
+
 // How many platforms use each field, and the data the Manage Fields dialog needs
 $fields_usage = [];
 foreach ($platform_field_ids as $pid => $set) {
